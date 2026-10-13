@@ -33,6 +33,7 @@ import * as printJobRepository from "@/backend/repositories/print-job.repository
 import * as settingsRepository from "@/backend/repositories/settings.repository";
 import { enqueueOrderPrintJob } from "@/backend/services/print.service";
 import {
+  sendOrderNotifyEmail,
   sendOrderPlacedEmail,
   sendOrderStatusEmail,
 } from "@/backend/services/email.service";
@@ -253,6 +254,34 @@ export async function createCashOrder(
     locale: request.locale,
   }).catch((error) => {
     console.error("[email] order placed failed", error);
+  });
+
+  const addressLine = request.address
+    ? [
+        `${request.address.street} ${request.address.houseNumber}`,
+        `${request.address.postalCode} ${request.address.city}`,
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : null;
+
+  void sendOrderNotifyEmail({
+    orderNumber: result.order.order_number,
+    orderId: result.order.id,
+    customerName: `${request.customer.firstName} ${request.customer.lastName}`,
+    customerEmail: request.customer.email,
+    customerPhone: request.customer.phone,
+    fulfillmentType: request.fulfillment,
+    total: money(result.order.total),
+    notes: request.notes ?? null,
+    addressLine,
+    items: lines.map((line) => ({
+      name: line.name,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+    })),
+  }).catch((error) => {
+    console.error("[email] kitchen notify failed", error);
   });
 
   return {

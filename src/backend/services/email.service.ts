@@ -103,8 +103,31 @@ export type OrderEmailContext = {
   locale?: string | null;
 };
 
+export type KitchenOrderNotifyContext = {
+  orderNumber: string;
+  orderId?: string | null;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  fulfillmentType: "delivery" | "pickup";
+  total: number;
+  notes?: string | null;
+  addressLine?: string | null;
+  items: Array<{ name: string; quantity: number; unitPrice: number }>;
+};
+
+/** Comma-separated kitchen inbox(es) from env. Empty → skip notify. */
+export function orderNotifyRecipients(): string[] {
+  const raw = process.env.ORDER_NOTIFY_EMAIL?.trim() ?? "";
+  if (!raw) return [];
+  return raw
+    .split(/[,;]+/)
+    .map((email) => email.trim())
+    .filter(Boolean);
+}
+
 async function sendEmail(input: {
-  to: string;
+  to: string | string[];
   subject: string;
   html: string;
   text: string;
@@ -129,6 +152,80 @@ async function sendEmail(input: {
   }
 
   return { skipped: false as const, id: result.data?.id };
+}
+
+/** Kitchen / owner alert when a guest places an order (German copy). */
+export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
+  const recipients = orderNotifyRecipients();
+  if (!recipients.length) {
+    console.warn("[email] ORDER_NOTIFY_EMAIL missing — kitchen notify skipped");
+    return { skipped: true as const };
+  }
+
+  const amount = money(ctx.total, "de");
+  const fulfillment =
+    ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung";
+  const adminUrl = ctx.orderId
+    ? `${siteUrl()}/admin/orders/${ctx.orderId}`
+    : `${siteUrl()}/admin/orders`;
+  const itemLines = ctx.items.map(
+    (item) =>
+      `${item.quantity}× ${item.name} — ${money(item.quantity * item.unitPrice, "de")}`,
+  );
+  const subject = `Neue Bestellung #${ctx.orderNumber} (${fulfillment})`;
+
+  const text = [
+    `Neue Bestellung #${ctx.orderNumber}`,
+    `Art: ${fulfillment}`,
+    `Total: ${amount}`,
+    ``,
+    `Kunde: ${ctx.customerName}`,
+    `Telefon: ${ctx.customerPhone}`,
+    `E-Mail: ${ctx.customerEmail}`,
+    ctx.addressLine ? `Adresse: ${ctx.addressLine}` : null,
+    ctx.notes ? `Notiz: ${ctx.notes}` : null,
+    ``,
+    `Positionen:`,
+    ...itemLines,
+    ``,
+    `Admin: ${adminUrl}`,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+
+  const htmlItems = itemLines
+    .map((line) => `<li>${escapeHtml(line)}</li>`)
+    .join("");
+
+  const html = wrapHtml(
+    subject,
+    `
+      <p><strong>Neue Bestellung #${escapeHtml(ctx.orderNumber)}</strong></p>
+      <p>Art: ${escapeHtml(fulfillment)}<br/>Total: <strong>${escapeHtml(amount)}</strong></p>
+      <p>
+        Kunde: ${escapeHtml(ctx.customerName)}<br/>
+        Telefon: ${escapeHtml(ctx.customerPhone)}<br/>
+        E-Mail: ${escapeHtml(ctx.customerEmail)}
+        ${ctx.addressLine ? `<br/>Adresse: ${escapeHtml(ctx.addressLine)}` : ""}
+        ${ctx.notes ? `<br/>Notiz: ${escapeHtml(ctx.notes)}` : ""}
+      </p>
+      <p><strong>Positionen</strong></p>
+      <ul>${htmlItems}</ul>
+      <p style="margin:22px 0;">
+        <a href="${escapeAttr(adminUrl)}" style="display:inline-block;background:#1a6b33;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-family:Arial,sans-serif;font-size:14px;font-weight:700;">
+          Im Admin öffnen
+        </a>
+      </p>
+    `,
+    "de",
+  );
+
+  return sendEmail({
+    to: recipients.length === 1 ? recipients[0]! : recipients,
+    subject,
+    html,
+    text,
+  });
 }
 
 export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
