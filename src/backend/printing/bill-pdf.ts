@@ -3,6 +3,10 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { PDFDocument, PDFFont } from "pdf-lib";
+import {
+  kitchenFulfillmentLabel,
+  kitchenPaymentLabel,
+} from "@/backend/printing/bill-labels";
 
 /** Shared bill content for Brother A4 PDF printing. */
 
@@ -34,6 +38,8 @@ export type ReceiptPayload = {
   total: number;
   currency: string;
   paymentMethod: string;
+  /** `pending` | `paid` | … — used with paymentMethod for kitchen labels. */
+  paymentStatus?: string | null;
 };
 
 export function receiptPayloadFromJson(value: unknown): ReceiptPayload | null {
@@ -216,9 +222,13 @@ export async function buildBillPdf(payload: ReceiptPayload): Promise<Uint8Array>
     });
   };
 
-  // Top banner: fulfillment type — large, bold, centered for kitchen.
-  const fulfillmentLabel =
-    payload.fulfillmentType === "delivery" ? "DELIVERY" : "PICKUP";
+  // Top banner: fulfillment + payment — large for kitchen sorting.
+  const fulfillmentLabel = kitchenFulfillmentLabel(payload.fulfillmentType);
+  const paymentLabel = kitchenPaymentLabel(
+    payload.paymentMethod,
+    payload.paymentStatus,
+  );
+  const bannerLabel = `${fulfillmentLabel} · ${paymentLabel}`;
 
   /**
    * Continues the ticket on a fresh sheet. The short header repeats the order
@@ -227,7 +237,7 @@ export async function buildBillPdf(payload: ReceiptPayload): Promise<Uint8Array>
   const continueOnNextPage = () => {
     page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     y = CONTENT_TOP;
-    write(`#${payload.orderNumber} — ${fulfillmentLabel} (continued)`, 13, {
+    write(`#${payload.orderNumber} — ${bannerLabel} (continued)`, 13, {
       bold: true,
     });
     y -= 20;
@@ -240,10 +250,10 @@ export async function buildBillPdf(payload: ReceiptPayload): Promise<Uint8Array>
     if (y - height < CONTENT_BOTTOM) continueOnNextPage();
   };
 
-  // Letterhead row: handwritten wordmark in the corner, fulfillment type big
+  // Letterhead row: handwritten wordmark in the corner, type + payment big
   // and centered so the kitchen can sort tickets at a glance.
   draw(payload.restaurantName, 30, { x: left, y: y - 4 }, { script: true });
-  writeCentered(fulfillmentLabel, 28, { bold: true });
+  writeCentered(bannerLabel, 24, { bold: true });
   y -= 40;
 
   // Header row: the guest on the left, the shop and order reference on the
@@ -360,8 +370,10 @@ export async function buildBillPdf(payload: ReceiptPayload): Promise<Uint8Array>
     y -= 16;
   }
   write(`TOTAL: ${money(payload.total, payload.currency)}`, 14, { bold: true });
+  y -= 18;
+  write(`Type: ${fulfillmentLabel}`, 12, { bold: true });
   y -= 16;
-  write(`Payment: ${payload.paymentMethod}`, 10, { color: muted });
+  write(`Payment: ${paymentLabel}`, 14, { bold: true });
   y -= 22;
 
   if (payload.customerNotes) {

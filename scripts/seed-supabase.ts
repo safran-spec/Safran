@@ -128,29 +128,44 @@ async function upsertContent() {
       },
     ];
 
+  // Testing project stays open 24/7 so Stripe / checkout can be exercised anytime.
+  const testingHours =
+    url.includes("hlqxpnbtovolvhnwmqwa.supabase.co") ||
+    process.env.SEED_24H_HOURS === "1";
+
   const openingHours =
     [0, 1, 2, 3, 4, 5, 6].map<
       Database["public"]["Tables"]["opening_hours"]["Insert"]
     >((weekday) =>
-      weekday === 0
+      testingHours
         ? {
             weekday,
-            is_closed: true,
-            lunch_opens: null,
-            lunch_closes: null,
-            dinner_opens: null,
-            dinner_closes: null,
-            note: "Geschlossen",
-          }
-        : {
-            weekday,
             is_closed: false,
-            lunch_opens: "11:00",
-            lunch_closes: "22:30",
+            lunch_opens: "00:00",
+            lunch_closes: "23:59",
             dinner_opens: null,
             dinner_closes: null,
-            note: null,
-          },
+            note: "Testing — 24h",
+          }
+        : weekday === 0
+          ? {
+              weekday,
+              is_closed: true,
+              lunch_opens: null,
+              lunch_closes: null,
+              dinner_opens: null,
+              dinner_closes: null,
+              note: "Geschlossen",
+            }
+          : {
+              weekday,
+              is_closed: false,
+              lunch_opens: "11:00",
+              lunch_closes: "22:30",
+              dinner_opens: null,
+              dinner_closes: null,
+              note: null,
+            },
     );
 
   const { error: settingsError } = await supabase

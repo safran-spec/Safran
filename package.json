@@ -12,7 +12,8 @@
     "email:test": "tsx scripts/send-test-email.ts",
     "menu:prices": "tsx scripts/update-menu-prices.ts",
     "supabase:seed": "tsx scripts/seed-supabase.ts",
-    "supabase:seed:no-storage": "tsx scripts/seed-supabase.ts --skip-storage"
+    "supabase:seed:no-storage": "tsx scripts/seed-supabase.ts --skip-storage",
+    "admin:create": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
@@ -23,7 +24,8 @@
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "resend": "^6.28.0",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "stripe": "^23.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

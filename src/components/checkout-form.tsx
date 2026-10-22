@@ -10,11 +10,40 @@ import {
 import { isValidEmailFormat } from "@/backend/validation/email-format";
 import { useCart } from "@/components/cart-provider";
 import { useLocale } from "@/lib/i18n/locale-context";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { localizedDishName } from "@/lib/i18n/menu-text";
 import { fetchLiveStoreAvailability } from "@/lib/live-store-status";
 import { isManualClosedMessage } from "@/lib/manual-closed-message";
 
+const CHECKOUT_ERROR_KEYS = {
+  item_unavailable: "checkout.err.item_unavailable",
+  store_closed: "checkout.err.store_closed",
+  fulfillment_unavailable: "checkout.err.fulfillment_unavailable",
+  ordering_unavailable: "checkout.err.ordering_unavailable",
+  order_failed: "checkout.err.order_failed",
+  payment_unavailable: "checkout.err.payment_unavailable",
+  minimum_not_met: "checkout.err.minimum_not_met",
+  invalid_customer: "checkout.err.invalid_customer",
+  invalid_address: "checkout.err.invalid_address",
+  invalid_items: "checkout.err.invalid_items",
+  policy_required: "checkout.err.policy_required",
+  invalid_email: "checkout.err.invalid_email",
+  invalid_email_domain: "checkout.err.invalid_email_domain",
+} as const satisfies Record<string, MessageKey>;
+
+function checkoutErrorMessage(
+  t: (key: MessageKey) => string,
+  code: string | undefined,
+  fallback?: string,
+): string {
+  if (code && code in CHECKOUT_ERROR_KEYS) {
+    return t(CHECKOUT_ERROR_KEYS[code as keyof typeof CHECKOUT_ERROR_KEYS]);
+  }
+  return fallback || t("checkout.orderFailed");
+}
+
 type Fulfillment = "delivery" | "pickup";
+type PaymentChoice = "cash" | "card";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition placeholder:text-muted/60 focus:border-sage focus:ring-2 focus:ring-sage/15";
@@ -64,6 +93,7 @@ export function CheckoutForm({
   }
 
   const [fulfillment, setFulfillment] = useState<Fulfillment>("delivery");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentChoice>("cash");
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
   const [notice, setNotice] = useState("");
   const [emailValue, setEmailValue] = useState("");
@@ -77,6 +107,15 @@ export function CheckoutForm({
   const closedLabel = isManualClosedMessage(closedMessage)
     ? t("checkout.closedDefault")
     : (closedMessage ?? t("checkout.closedDefault"));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "cancelled") {
+      setNotice(t("checkout.paymentCancelled"));
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [t]);
 
   useEffect(() => {
     const value = emailValue.trim().toLowerCase();
@@ -229,7 +268,7 @@ export function CheckoutForm({
         body: JSON.stringify({
           idempotencyKey: key,
           fulfillment,
-          paymentMethod: "cash",
+          paymentMethod,
           // Confirmation and status emails are written in this language.
           locale,
           acceptedNoCancellation: acceptedPolicy,
@@ -261,6 +300,7 @@ export function CheckoutForm({
       });
       const result = (await response.json()) as {
         confirmationToken?: string;
+        checkoutUrl?: string;
         message?: string;
         error?: string;
       };
@@ -270,17 +310,25 @@ export function CheckoutForm({
           result.error === "invalid_email_domain" ||
           /e-?mail/i.test(result.message ?? "")
         ) {
-          setEmailError(result.message || t("checkout.emailUnlikely"));
+          setEmailError(
+            checkoutErrorMessage(t, result.error, result.message) ||
+              t("checkout.emailUnlikely"),
+          );
           setEmailOk(false);
           setSubmitting(false);
           return;
         }
-        throw new Error(result.message || t("checkout.orderFailed"));
+        throw new Error(checkoutErrorMessage(t, result.error, result.message));
       }
 
       clearCart();
+      // Online pay: leave for Stripe Checkout. Cash: go straight to status.
       // Full navigation avoids soft-router crashes when the DOM was mutated
       // (browser translate extensions, etc.) during checkout.
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
       window.location.assign(`/bestellung/${result.confirmationToken}`);
     } catch (error) {
       setNotice(
@@ -494,27 +542,50 @@ export function CheckoutForm({
           <h2 className="font-serif text-2xl text-ink">
             {t("checkout.paymentTitle")}
           </h2>
-          <div className="mt-3">
-            <label className="flex cursor-pointer items-center gap-4 rounded-2xl border border-sage bg-sage/8 p-4">
-              <input
-                type="radio"
-                name="payment"
-                value="cash"
-                checked
-                readOnly
-                className="h-4 w-4 accent-sage"
-              />
-              <span>
-                <span className="block text-sm font-semibold">
-                  {fulfillment === "delivery"
-                    ? t("checkout.cashDelivery")
-                    : t("checkout.cashPickup")}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                {
+                  value: "cash" as const,
+                  title:
+                    fulfillment === "delivery"
+                      ? t("checkout.cashDelivery")
+                      : t("checkout.cashPickup"),
+                  description: t("checkout.cashHint"),
+                },
+                {
+                  value: "card" as const,
+                  title: t("checkout.payOnline"),
+                  description: t("checkout.payOnlineHint"),
+                },
+              ] as const
+            ).map((option) => (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
+                  paymentMethod === option.value
+                    ? "border-sage bg-sage/8 ring-1 ring-sage"
+                    : "border-ink/10 hover:border-sage/50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="payment"
+                  value={option.value}
+                  checked={paymentMethod === option.value}
+                  onChange={() => setPaymentMethod(option.value)}
+                  className="mt-0.5 h-4 w-4 accent-sage"
+                />
+                <span>
+                  <span className="block text-sm font-semibold">
+                    {option.title}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted">
+                    {option.description}
+                  </span>
                 </span>
-                <span className="mt-0.5 block text-xs text-muted">
-                  {t("checkout.cashHint")}
-                </span>
-              </span>
-            </label>
+              </label>
+            ))}
           </div>
         </fieldset>
 
@@ -667,10 +738,14 @@ export function CheckoutForm({
           {!storeOpen
             ? t("checkout.closedTitle")
             : submitting
-              ? t("checkout.submitting")
+              ? paymentMethod === "card"
+                ? t("checkout.redirectingPay")
+                : t("checkout.submitting")
               : emailChecking
                 ? t("checkout.emailChecking")
-                : t("checkout.submit")}
+                : paymentMethod === "card"
+                  ? t("checkout.submitPay")
+                  : t("checkout.submit")}
         </button>
 
         {notice && (

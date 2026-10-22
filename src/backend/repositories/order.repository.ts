@@ -25,9 +25,56 @@ export const ORDER_LIST_COLUMNS =
 export function findByIdempotencyKey(db: Db, key: string) {
   return db
     .from("orders")
-    .select("id, order_number, confirmation_token, total, status")
+    .select(
+      "id, order_number, confirmation_token, total, status, payment_status, payment_method, payment_reference, customer_email, locale",
+    )
     .eq("idempotency_key", key)
     .maybeSingle();
+}
+
+export function findByPaymentReference(db: Db, reference: string) {
+  return db
+    .from("orders")
+    .select(
+      "id, order_number, confirmation_token, total, status, payment_status, payment_method, payment_reference, customer_email, customer_name, fulfillment_type, customer_phone, customer_notes, address_line1, postal_code, city, locale",
+    )
+    .eq("payment_reference", reference)
+    .maybeSingle();
+}
+
+/** Marks an unpaid online order as paid. No-op if already paid (CAS on status). */
+export function markOrderPaid(
+  db: Db,
+  orderId: string,
+  reference: string,
+) {
+  return db
+    .from("orders")
+    .update({
+      payment_status: "paid",
+      payment_provider: "stripe",
+      payment_reference: reference,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+    .eq("payment_status", "pending")
+    .select("id, order_number, confirmation_token, total, status, customer_email, customer_name, fulfillment_type, customer_phone, customer_notes, address_line1, postal_code, city, locale")
+    .maybeSingle();
+}
+
+export function setPaymentReference(
+  db: Db,
+  orderId: string,
+  reference: string,
+) {
+  return db
+    .from("orders")
+    .update({
+      payment_provider: "stripe",
+      payment_reference: reference,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
 }
 
 /**
@@ -39,7 +86,7 @@ export function findByConfirmationToken(db: Db, token: string) {
   return db
     .from("orders")
     .select(
-      "id, order_number, status, fulfillment_type, payment_status, subtotal, delivery_fee, total, currency, created_at, order_items(name, quantity, unit_price, line_total), order_status_events(to_status, note, created_at)",
+      "id, order_number, status, fulfillment_type, payment_status, payment_method, subtotal, delivery_fee, total, currency, created_at, order_items(name, quantity, unit_price, line_total), order_status_events(to_status, note, created_at)",
     )
     .eq("confirmation_token", token)
     // Embedded rows have no implicit order, so sort them here to keep the cart
@@ -126,7 +173,7 @@ export function countOrdersSince(db: Db, since: string) {
 export function listOrderKpisSince(db: Db, since: string, until?: string) {
   const query = db
     .from("orders")
-    .select("status, total, payment_method")
+    .select("status, total, payment_method, payment_status")
     .gte("created_at", since);
 
   return until ? query.lt("created_at", until) : query;

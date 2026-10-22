@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getOrderByToken } from "@/backend/services/order.service";
+import {
+  getOrderByToken,
+  syncStripeCheckoutSession,
+} from "@/backend/services/order.service";
 import { OrderConfirmationView } from "@/components/order-confirmation-view";
 
 export const metadata: Metadata = {
@@ -18,10 +21,22 @@ type OrderItem = {
 
 export default async function OrderConfirmationPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ session_id?: string }>;
 }) {
   const { token } = await params;
+  const { session_id: sessionId } = await searchParams;
+
+  // Success-URL backup when the webhook has not fired yet (common in local test).
+  if (sessionId) {
+    await syncStripeCheckoutSession({
+      confirmationToken: token,
+      sessionId,
+    });
+  }
+
   const order = await getOrderByToken(token);
   if (!order) notFound();
 
@@ -39,6 +54,8 @@ export default async function OrderConfirmationPage({
           orderNumber={order.order_number}
           status={order.status}
           fulfillmentType={order.fulfillment_type}
+          paymentMethod={String(order.payment_method ?? "cash")}
+          paymentStatus={String(order.payment_status ?? "pending")}
           items={items}
           total={Number(order.total)}
         />

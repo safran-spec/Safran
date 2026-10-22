@@ -37,6 +37,11 @@ import {
   sendOrderPlacedEmail,
   sendOrderStatusEmail,
 } from "@/backend/services/email.service";
+import {
+  createOrderCheckoutSession,
+  retrieveCheckoutSession,
+} from "@/backend/stripe/checkout";
+import { isStripeConfigured } from "@/backend/stripe/config";
 import { createServiceClient } from "@/backend/supabase/clients";
 import type { CreatedOrder, OrderRequest } from "@/backend/types";
 import { assertDeliverableEmail } from "@/backend/validation/email";
@@ -65,8 +70,14 @@ function shortOrderNumber() {
   return `${day}-${suffix}`;
 }
 
+type CreateOrderOptions = {
+  /** Browser origin for Stripe success/cancel URLs (e.g. http://localhost:3000). */
+  origin?: string;
+};
+
 /**
- * Creates a cash order.
+ * Creates an order. Cash is confirmed immediately; card creates a Stripe
+ * Checkout Session and only prints/emails after payment succeeds.
  *
  * Everything that decides what the guest pays is read from the database inside
  * this function: unit prices, the delivery fee, minimum order values, whether
@@ -75,8 +86,17 @@ function shortOrderNumber() {
  */
 export async function createCashOrder(
   request: OrderRequest,
+  options: CreateOrderOptions = {},
 ): Promise<CreatedOrder> {
   const db = trustedClient();
+  const payOnline = request.paymentMethod === "card";
+
+  if (payOnline && !isStripeConfigured()) {
+    throw new UnavailableError(
+      "payment_unavailable",
+      "Online-Zahlung ist derzeit nicht verfügbar.",
+    );
+  }
 
   await assertDeliverableEmail(request.customer.email);
 
@@ -85,13 +105,7 @@ export async function createCashOrder(
     request.idempotencyKey,
   );
   if (duplicate.data) {
-    return {
-      orderNumber: String(duplicate.data.order_number),
-      confirmationToken: String(duplicate.data.confirmation_token),
-      total: money(duplicate.data.total),
-      currency: "CHF",
-      status: String(duplicate.data.status || INITIAL_ORDER_STATUS),
-    };
+    return resumeExistingOrder(db, duplicate.data, options.origin);
   }
 
   const itemNumbers = request.items.map((item) => menuItemNumber(item.id));
@@ -185,7 +199,8 @@ export async function createCashOrder(
     status: INITIAL_ORDER_STATUS,
     fulfillment_type: request.fulfillment,
     payment_status: "pending" as const,
-    payment_method: "cash",
+    payment_method: payOnline ? "card" : "cash",
+    payment_provider: payOnline ? "stripe" : null,
     accepted_no_cancellation: true,
     customer_name: `${request.customer.firstName} ${request.customer.lastName}`,
     customer_email: request.customer.email,
@@ -233,55 +248,55 @@ export async function createCashOrder(
     );
   }
 
-  // Bill print: save a print_jobs row first, then trigger the printer. Failures
-  // stay queued for retry and never block checkout.
-  if (result.order.id) {
-    void enqueueOrderPrintJob({
-      orderId: result.order.id,
-      triggerSource: "order_created",
+  if (payOnline) {
+    const checkoutUrl = await startStripeCheckout({
       db,
+      orderId: result.order.id,
+      orderNumber: result.order.order_number,
+      confirmationToken: result.order.confirmation_token,
+      total: money(result.order.total),
+      customerEmail: request.customer.email,
+      locale: request.locale,
+      origin: options.origin,
     });
+
+    return {
+      orderNumber: result.order.order_number,
+      confirmationToken: result.order.confirmation_token,
+      total: money(result.order.total),
+      currency: "CHF",
+      status: result.order.status,
+      checkoutUrl,
+      paymentMethod: "card",
+    };
   }
 
-  void sendOrderPlacedEmail({
-    to: request.customer.email,
-    customerName: `${request.customer.firstName} ${request.customer.lastName}`,
+  await notifyOrderCreated({
+    orderId: result.order.id,
     orderNumber: result.order.order_number,
     confirmationToken: result.order.confirmation_token,
-    fulfillmentType: request.fulfillment,
-    total: money(result.order.total),
     status: result.order.status,
+    fulfillment: request.fulfillment,
+    total: money(result.order.total),
     locale: request.locale,
-  }).catch((error) => {
-    console.error("[email] order placed failed", error);
-  });
-
-  const addressLine = request.address
-    ? [
-        `${request.address.street} ${request.address.houseNumber}`,
-        `${request.address.postalCode} ${request.address.city}`,
-      ]
-        .filter(Boolean)
-        .join(", ")
-    : null;
-
-  void sendOrderNotifyEmail({
-    orderNumber: result.order.order_number,
-    orderId: result.order.id,
     customerName: `${request.customer.firstName} ${request.customer.lastName}`,
     customerEmail: request.customer.email,
     customerPhone: request.customer.phone,
-    fulfillmentType: request.fulfillment,
-    total: money(result.order.total),
     notes: request.notes ?? null,
-    addressLine,
+    addressLine: request.address
+      ? [
+          `${request.address.street} ${request.address.houseNumber}`,
+          `${request.address.postalCode} ${request.address.city}`,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : null,
     items: lines.map((line) => ({
       name: line.name,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
     })),
-  }).catch((error) => {
-    console.error("[email] kitchen notify failed", error);
+    db,
   });
 
   return {
@@ -290,7 +305,255 @@ export async function createCashOrder(
     total: money(result.order.total),
     currency: "CHF",
     status: result.order.status,
+    paymentMethod: "cash",
   };
+}
+
+async function resumeExistingOrder(
+  db: Db,
+  row: {
+    id: string;
+    order_number: string;
+    confirmation_token: string;
+    total: number | string;
+    status: string | null;
+    payment_status?: string | null;
+    payment_method?: string | null;
+    customer_email?: string | null;
+    locale?: string | null;
+  },
+  origin?: string,
+): Promise<CreatedOrder> {
+  const paymentMethod = row.payment_method === "card" ? "card" : "cash";
+  const base: CreatedOrder = {
+    orderNumber: String(row.order_number),
+    confirmationToken: String(row.confirmation_token),
+    total: money(row.total),
+    currency: "CHF",
+    status: String(row.status || INITIAL_ORDER_STATUS),
+    paymentMethod,
+  };
+
+  if (
+    paymentMethod === "card" &&
+    row.payment_status === "pending" &&
+    row.customer_email
+  ) {
+    const checkoutUrl = await startStripeCheckout({
+      db,
+      orderId: row.id,
+      orderNumber: String(row.order_number),
+      confirmationToken: String(row.confirmation_token),
+      total: money(row.total),
+      customerEmail: row.customer_email,
+      locale: row.locale === "en" ? "en" : "de",
+      origin,
+    });
+    return { ...base, checkoutUrl };
+  }
+
+  return base;
+}
+
+async function startStripeCheckout(input: {
+  db: Db;
+  orderId: string;
+  orderNumber: string;
+  confirmationToken: string;
+  total: number;
+  customerEmail: string;
+  locale: "de" | "en";
+  origin?: string;
+}): Promise<string> {
+  const origin =
+    input.origin?.replace(/\/$/, "") ||
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    "http://localhost:3000";
+
+  try {
+    const session = await createOrderCheckoutSession({
+      orderId: input.orderId,
+      orderNumber: input.orderNumber,
+      confirmationToken: input.confirmationToken,
+      totalChf: input.total,
+      customerEmail: input.customerEmail,
+      locale: input.locale,
+      origin,
+    });
+
+    if (!session.url) {
+      throw new UnavailableError(
+        "payment_unavailable",
+        "Die Zahlungsseite konnte nicht geöffnet werden.",
+      );
+    }
+
+    await orderRepository.setPaymentReference(input.db, input.orderId, session.id);
+    return session.url;
+  } catch (error) {
+    if (error instanceof UnavailableError) throw error;
+    console.error("[stripe] checkout session failed", error);
+    throw new UnavailableError(
+      "payment_unavailable",
+      "Die Zahlungsseite konnte nicht geöffnet werden.",
+    );
+  }
+}
+
+async function notifyOrderCreated(input: {
+  orderId: string;
+  orderNumber: string;
+  confirmationToken: string;
+  status: string;
+  fulfillment: "delivery" | "pickup";
+  total: number;
+  locale: "de" | "en";
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  notes: string | null;
+  addressLine: string | null;
+  items: Array<{ name: string; quantity: number; unitPrice: number }>;
+  db: Db;
+  paidOnline?: boolean;
+}) {
+  void enqueueOrderPrintJob({
+    orderId: input.orderId,
+    triggerSource: "order_created",
+    db: input.db,
+  });
+
+  // Guest receipt first and awaited — fire-and-forget was dropping it while
+  // the kitchen notify (same Resend account owner) still arrived.
+  if (input.customerEmail.trim()) {
+    try {
+      await sendOrderPlacedEmail({
+        to: input.customerEmail.trim(),
+        customerName: input.customerName,
+        orderNumber: input.orderNumber,
+        confirmationToken: input.confirmationToken,
+        fulfillmentType: input.fulfillment,
+        total: input.total,
+        status: input.status,
+        locale: input.locale,
+        paidOnline: input.paidOnline,
+      });
+    } catch (error) {
+      console.error("[email] guest receipt failed", {
+        to: input.customerEmail,
+        orderNumber: input.orderNumber,
+        error,
+      });
+    }
+  } else {
+    console.warn("[email] guest receipt skipped — empty customer email", {
+      orderNumber: input.orderNumber,
+    });
+  }
+
+  try {
+    await sendOrderNotifyEmail({
+      orderNumber: input.orderNumber,
+      orderId: input.orderId,
+      customerName: input.customerName,
+      customerEmail: input.customerEmail,
+      customerPhone: input.customerPhone,
+      fulfillmentType: input.fulfillment,
+      total: input.total,
+      notes: input.notes,
+      addressLine: input.addressLine,
+      items: input.items,
+    });
+  } catch (error) {
+    console.error("[email] kitchen notify failed", error);
+  }
+}
+
+/**
+ * Marks a Stripe-paid order as paid and runs print + emails once.
+ * Safe to call from the webhook and from the success-page sync.
+ */
+export async function markOrderPaidFromStripe(input: {
+  orderId: string;
+  paymentReference: string;
+}): Promise<boolean> {
+  const db = trustedClient();
+  const updated = await orderRepository.markOrderPaid(
+    db,
+    input.orderId,
+    input.paymentReference,
+  );
+
+  if (updated.error) {
+    console.error("[stripe] mark paid failed", updated.error);
+    return false;
+  }
+  if (!updated.data) {
+    // Already paid or unknown id — treat as success for idempotent webhooks.
+    return true;
+  }
+
+  const order = updated.data;
+  const itemsResult = await orderRepository.findOrderItems(db, order.id);
+  const fulfillment =
+    order.fulfillment_type === "pickup" ? "pickup" : "delivery";
+  const addressLine = [order.address_line1, order.postal_code, order.city]
+    .filter(Boolean)
+    .join(", ");
+
+  await notifyOrderCreated({
+    orderId: order.id,
+    orderNumber: order.order_number,
+    confirmationToken: order.confirmation_token,
+    status: order.status,
+    fulfillment,
+    total: money(order.total),
+    locale: order.locale === "en" ? "en" : "de",
+    customerName: order.customer_name || "Gast",
+    customerEmail: order.customer_email || "",
+    customerPhone: order.customer_phone || "",
+    notes: order.customer_notes,
+    addressLine: addressLine || null,
+    items: (itemsResult.data ?? []).map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: money(item.unit_price),
+    })),
+    db,
+    paidOnline: true,
+  });
+
+  return true;
+}
+
+/**
+ * Backup when the webhook is slow or missing locally: after Stripe redirects
+ * back with `session_id`, confirm the session and fulfill the order.
+ */
+export async function syncStripeCheckoutSession(input: {
+  confirmationToken: string;
+  sessionId: string;
+}): Promise<void> {
+  if (!isStripeConfigured() || !isUuid(input.confirmationToken)) return;
+  if (!/^cs_[a-zA-Z0-9_]+$/.test(input.sessionId)) return;
+
+  try {
+    const session = await retrieveCheckoutSession(input.sessionId);
+    if (session.payment_status !== "paid" && session.status !== "complete") {
+      return;
+    }
+
+    const metaToken = session.metadata?.confirmation_token;
+    const orderId = session.metadata?.order_id;
+    if (!orderId || metaToken !== input.confirmationToken) return;
+
+    await markOrderPaidFromStripe({
+      orderId,
+      paymentReference: session.id,
+    });
+  } catch (error) {
+    console.error("[stripe] session sync failed", error);
+  }
 }
 
 /** Only one sweep per this many ms per server instance. */
@@ -600,12 +863,17 @@ export function resolveOverviewRange(input: {
 }
 
 export type OverviewKpis = {
-  /** Non-cancelled orders placed in the selected range. */
+  /**
+   * Counted sales in the range: cash COD + paid Stripe.
+   * Unpaid abandoned Checkout sessions are excluded.
+   */
   transactions: number;
-  /** Online / card / TWINT totals (non-cash, non-cancelled). */
+  /** cashRevenue + onlineRevenue. */
+  totalRevenue: number;
+  /** Paid online (Stripe card / TWINT) totals, non-cancelled. */
   onlineRevenue: number;
   onlineCount: number;
-  /** Cash totals (non-cancelled). */
+  /** Cash / COD totals, non-cancelled. */
   cashRevenue: number;
   cashCount: number;
   pending: number;
@@ -653,7 +921,6 @@ export async function getBackOfficeOverview(range?: OverviewRange) {
     completed: 0,
     cancelled: 0,
   };
-  let transactions = 0;
   let cashRevenue = 0;
   let cashCount = 0;
   let onlineRevenue = 0;
@@ -664,22 +931,29 @@ export async function getBackOfficeOverview(range?: OverviewRange) {
     if (status in byStatus) byStatus[status] += 1;
     if (status === "cancelled") continue;
 
-    transactions += 1;
     const total = Number(row.total ?? 0);
-    if (row.payment_method === "cash") {
+    const method = String(row.payment_method ?? "cash");
+    const paymentStatus = String(row.payment_status ?? "pending");
+
+    if (method === "cash") {
       cashCount += 1;
       cashRevenue = money(cashRevenue + total);
-    } else {
-      // Everything that is not cash is treated as an online payment
-      // (card, TWINT, provider, …) so this KPI stays correct when
-      // online checkout is enabled later.
+      continue;
+    }
+
+    // Stripe / card / TWINT — only count once payment succeeded.
+    if (paymentStatus === "paid") {
       onlineCount += 1;
       onlineRevenue = money(onlineRevenue + total);
     }
   }
 
+  const transactions = cashCount + onlineCount;
+  const totalRevenue = money(cashRevenue + onlineRevenue);
+
   const kpis: OverviewKpis = {
     transactions,
+    totalRevenue,
     onlineRevenue,
     onlineCount,
     cashRevenue,

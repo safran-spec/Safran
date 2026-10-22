@@ -113,6 +113,7 @@ export function buildReceiptPayload(
     total: Number(order.total),
     currency: order.currency || "CHF",
     paymentMethod: order.payment_method || "cash",
+    paymentStatus: order.payment_status ?? "pending",
   };
 }
 

@@ -24,8 +24,11 @@ export type DashboardOrder = {
 };
 
 export type DashboardKpis = {
+  totalRevenue: number;
   cashRevenue: number;
+  cashCount: number;
   onlineRevenue: number;
+  onlineCount: number;
   transactions: number;
   cancelled: number;
   inProgress: number;
@@ -107,7 +110,10 @@ export function AdminDashboardView({
 }) {
   const { t } = useLocale();
   const { formatMoney, formatDateTime, formatDate } = useAdminFormat();
-  const rangeRevenue = kpis.cashRevenue;
+  const rangeRevenue =
+    Number.isFinite(kpis.totalRevenue)
+      ? kpis.totalRevenue
+      : kpis.cashRevenue + kpis.onlineRevenue;
   const avgOrder =
     kpis.transactions > 0 ? rangeRevenue / kpis.transactions : 0;
   const day = (key: string) => formatDate(`${key}T12:00:00Z`);
@@ -230,6 +236,87 @@ export function AdminDashboardView({
             </IconWrap>
           }
         />
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-3">
+          <h2 className="font-sans text-lg font-semibold tracking-tight text-ink">
+            {t("admin.dash.payments")}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted">
+            {t("admin.dash.paymentsHint")}
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <KpiCard
+            label={t("admin.dash.paymentsAll")}
+            value={formatMoney(rangeRevenue)}
+            hint={t("admin.dash.paymentsAllHint", {
+              n: kpis.transactions,
+            })}
+            icon={
+              <IconWrap className="bg-ink/5 text-ink">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path
+                    d="M4 7h16v10H4V7Zm0 3h16M8 14h2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </IconWrap>
+            }
+          />
+          <KpiCard
+            label={t("admin.dash.cash")}
+            value={formatMoney(kpis.cashRevenue)}
+            hint={t("admin.dash.cashHint", { n: kpis.cashCount })}
+            icon={
+              <IconWrap className="bg-amber-50 text-amber-800">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path
+                    d="M12 3v18M7 8h7a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </IconWrap>
+            }
+          />
+          <KpiCard
+            label={t("admin.dash.online")}
+            value={formatMoney(kpis.onlineRevenue)}
+            hint={t("admin.dash.onlineHint", { n: kpis.onlineCount })}
+            icon={
+              <IconWrap className="bg-sky-50 text-sky-800">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path
+                    d="M3 10h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8Zm2-4h14l1 4H4l1-4Z"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </IconWrap>
+            }
+          />
+        </div>
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">

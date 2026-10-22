@@ -135,15 +135,30 @@ describe("checkout payload validation", () => {
     assert.equal(parsed.address, undefined);
   });
 
-  it("insists on the cancellation policy and a cash payment", () => {
+  it("insists on the cancellation policy and a known payment method", () => {
     assert.throws(
       () => parseOrderRequest({ ...validBody, acceptedNoCancellation: false }),
       ValidationError,
     );
     assert.throws(
-      () => parseOrderRequest({ ...validBody, paymentMethod: "card" }),
+      () => parseOrderRequest({ ...validBody, paymentMethod: "bitcoin" }),
       ValidationError,
     );
+  });
+
+  it("accepts card payment when Stripe is configured", () => {
+    const previous = process.env.STRIPE_SECRET_KEY;
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    try {
+      const parsed = parseOrderRequest({
+        ...validBody,
+        paymentMethod: "card",
+      });
+      assert.equal(parsed.paymentMethod, "card");
+    } finally {
+      if (previous === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = previous;
+    }
   });
 
   it("requires a usable idempotency key and a matching header", () => {

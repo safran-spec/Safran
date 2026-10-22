@@ -161,8 +161,10 @@ export const messages = {
     "checkout.cashPickup": "Bar bei Abholung",
     "checkout.cashHint": "Direkt beim Erhalt bezahlen",
     "checkout.payOnline": "Online bezahlen",
-    "checkout.payOnlineHint": "Karte und TWINT – derzeit nicht verfügbar",
-    "checkout.payOnlineAria": "Online bezahlen – derzeit nicht verfügbar",
+    "checkout.payOnlineHint": "Karte und TWINT über Stripe",
+    "checkout.payOnlineAria": "Online bezahlen mit Karte oder TWINT",
+    "checkout.paymentCancelled":
+      "Zahlung abgebrochen. Sie können erneut bestellen oder bar wählen.",
     "checkout.notesLabel": "Bemerkungen zur Bestellung",
     "checkout.notesPlaceholder": "Zum Beispiel Hinweise zur Lieferung",
     "checkout.yourOrder": "Ihre Bestellung",
@@ -181,8 +183,32 @@ export const messages = {
     "checkout.policy":
       "Ich bestätige, dass die Bestellung nach dem Absenden nicht storniert werden kann.",
     "checkout.submit": "Zahlungspflichtig bestellen",
+    "checkout.submitPay": "Weiter zur Zahlung",
     "checkout.submitting": "Bestellung wird gesendet…",
+    "checkout.redirectingPay": "Weiterleitung zur Zahlung…",
     "checkout.orderFailed": "Die Bestellung konnte nicht gesendet werden.",
+    "checkout.err.item_unavailable":
+      "Mindestens ein Artikel ist nicht mehr verfügbar.",
+    "checkout.err.store_closed": "Das Restaurant ist derzeit geschlossen.",
+    "checkout.err.fulfillment_unavailable":
+      "Die gewählte Bestellart ist derzeit nicht verfügbar.",
+    "checkout.err.ordering_unavailable":
+      "Bestellungen sind vorübergehend nicht verfügbar.",
+    "checkout.err.order_failed":
+      "Die Bestellung konnte nicht gespeichert werden.",
+    "checkout.err.payment_unavailable":
+      "Online-Zahlung ist derzeit nicht verfügbar.",
+    "checkout.err.minimum_not_met":
+      "Der Mindestbestellwert für diese Bestellung ist nicht erreicht.",
+    "checkout.err.invalid_customer": "Bitte prüfen Sie Ihre Kontaktdaten.",
+    "checkout.err.invalid_address":
+      "Bitte geben Sie eine vollständige Lieferadresse an.",
+    "checkout.err.invalid_items": "Ihr Warenkorb ist ungültig oder leer.",
+    "checkout.err.policy_required":
+      "Bitte bestätigen Sie die Stornierungsbedingungen.",
+    "checkout.err.invalid_email": "Bitte prüfen Sie Ihre E-Mail-Adresse.",
+    "checkout.err.invalid_email_domain":
+      "Diese E-Mail-Adresse scheint ungültig zu sein.",
 
     "checkout.eyebrow": "Sicher und ohne Konto",
     "checkout.title": "Ihre Bestellung",
@@ -213,6 +239,8 @@ export const messages = {
     "order.page.summary": "Zusammenfassung",
     "order.page.cashOnDelivery": "Zahlung bar bei Lieferung.",
     "order.page.cashOnPickup": "Zahlung bar bei Abholung.",
+    "order.page.paidOnline": "Online bezahlt (Karte / TWINT).",
+    "order.page.paymentPending": "Zahlung wird bestätigt…",
 
     "admin.dash.title": "Übersicht",
     "admin.dash.desc": "Bestellungen, Umsatz und Status für {range}.",
@@ -252,9 +280,13 @@ export const messages = {
     "admin.dash.statusTitle": "Bestellstatus",
     "admin.dash.statusCount": "{n} Bestellung(en) heute",
     "admin.dash.payments": "Zahlungsarten",
-    "admin.dash.paymentsHint": "Umsatz im Zeitraum (ohne Storno)",
-    "admin.dash.cash": "Bar",
-    "admin.dash.online": "Online",
+    "admin.dash.paymentsHint": "Umsatz im Zeitraum (ohne Storno; Stripe nur bezahlt)",
+    "admin.dash.paymentsAll": "Alle Zahlungen",
+    "admin.dash.paymentsAllHint": "{n} bezahlte Bestellungen",
+    "admin.dash.cash": "Bar (COD)",
+    "admin.dash.cashHint": "{n} Bestellungen bar",
+    "admin.dash.online": "Stripe (Online)",
+    "admin.dash.onlineHint": "{n} online bezahlt",
     "admin.dash.recent": "Letzte Bestellungen",
     "admin.dash.recentHint": "Neueste Eingänge im Zeitraum",
     "admin.dash.viewAll": "Alle anzeigen",
@@ -768,8 +800,10 @@ export const messages = {
     "checkout.cashPickup": "Cash on pickup",
     "checkout.cashHint": "Pay when you receive your order",
     "checkout.payOnline": "Pay online",
-    "checkout.payOnlineHint": "Card and TWINT – currently unavailable",
-    "checkout.payOnlineAria": "Pay online – currently unavailable",
+    "checkout.payOnlineHint": "Card and TWINT via Stripe",
+    "checkout.payOnlineAria": "Pay online with card or TWINT",
+    "checkout.paymentCancelled":
+      "Payment cancelled. You can try again or choose cash.",
     "checkout.notesLabel": "Order notes",
     "checkout.notesPlaceholder": "For example delivery instructions",
     "checkout.yourOrder": "Your order",
@@ -788,8 +822,30 @@ export const messages = {
     "checkout.policy":
       "I confirm that the order cannot be cancelled once it is submitted.",
     "checkout.submit": "Place binding order",
+    "checkout.submitPay": "Continue to payment",
     "checkout.submitting": "Sending order…",
+    "checkout.redirectingPay": "Redirecting to payment…",
     "checkout.orderFailed": "The order could not be sent.",
+    "checkout.err.item_unavailable":
+      "At least one item is no longer available.",
+    "checkout.err.store_closed": "The restaurant is currently closed.",
+    "checkout.err.fulfillment_unavailable":
+      "The selected order type is currently unavailable.",
+    "checkout.err.ordering_unavailable":
+      "Ordering is temporarily unavailable.",
+    "checkout.err.order_failed": "The order could not be saved.",
+    "checkout.err.payment_unavailable":
+      "Online payment is currently unavailable.",
+    "checkout.err.minimum_not_met":
+      "The minimum order value for this order has not been reached.",
+    "checkout.err.invalid_customer": "Please check your contact details.",
+    "checkout.err.invalid_address": "Please enter a complete delivery address.",
+    "checkout.err.invalid_items": "Your cart is invalid or empty.",
+    "checkout.err.policy_required":
+      "Please confirm the cancellation policy.",
+    "checkout.err.invalid_email": "Please check your email address.",
+    "checkout.err.invalid_email_domain":
+      "This email address does not look valid.",
 
     "checkout.eyebrow": "Secure, no account needed",
     "checkout.title": "Your order",
@@ -819,6 +875,8 @@ export const messages = {
     "order.page.summary": "Summary",
     "order.page.cashOnDelivery": "Cash payment on delivery.",
     "order.page.cashOnPickup": "Cash payment on pickup.",
+    "order.page.paidOnline": "Paid online (card / TWINT).",
+    "order.page.paymentPending": "Confirming payment…",
 
     "admin.dash.title": "Overview",
     "admin.dash.desc": "Orders, revenue, and status for {range}.",
@@ -858,9 +916,14 @@ export const messages = {
     "admin.dash.statusTitle": "Order status",
     "admin.dash.statusCount": "{n} order(s) today",
     "admin.dash.payments": "Payment methods",
-    "admin.dash.paymentsHint": "Revenue in this period (excl. cancellations)",
-    "admin.dash.cash": "Cash",
-    "admin.dash.online": "Online",
+    "admin.dash.paymentsHint":
+      "Revenue in this period (excl. cancellations; Stripe only when paid)",
+    "admin.dash.paymentsAll": "All payments",
+    "admin.dash.paymentsAllHint": "{n} paid orders",
+    "admin.dash.cash": "Cash (COD)",
+    "admin.dash.cashHint": "{n} cash orders",
+    "admin.dash.online": "Stripe (Online)",
+    "admin.dash.onlineHint": "{n} paid online",
     "admin.dash.recent": "Recent orders",
     "admin.dash.recentHint": "Latest orders in this period",
     "admin.dash.viewAll": "View all",

@@ -101,6 +101,8 @@ export type OrderEmailContext = {
   status: string;
   /** Language the guest ordered in; defaults to German when unknown. */
   locale?: string | null;
+  /** True after Stripe Checkout succeeds — email reads as a paid receipt. */
+  paidOnline?: boolean;
 };
 
 export type KitchenOrderNotifyContext = {
@@ -138,18 +140,32 @@ async function sendEmail(input: {
     return { skipped: true as const };
   }
 
+  const toList = Array.isArray(input.to) ? input.to : [input.to];
   const result = await resend.emails.send({
     from: fromAddress(),
     to: input.to,
     subject: input.subject,
     html: input.html,
     text: input.text,
+    replyTo:
+      process.env.NEXT_PUBLIC_RESTAURANT_EMAIL?.trim() ||
+      "info@safran-solothurn.ch",
   });
 
   if (result.error) {
-    console.error("[email] Resend error:", result.error);
+    console.error("[email] Resend error:", {
+      to: toList,
+      subject: input.subject,
+      error: result.error,
+    });
     throw new Error(result.error.message || "email_failed");
   }
+
+  console.info("[email] sent", {
+    to: toList,
+    subject: input.subject,
+    id: result.data?.id,
+  });
 
   return { skipped: false as const, id: result.data?.id };
 }
@@ -232,14 +248,19 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
   const locale = emailLocale(ctx.locale);
   const trackUrl = `${siteUrl()}/bestellung/${ctx.confirmationToken}`;
   const amount = money(ctx.total, locale);
+  const paid = ctx.paidOnline === true;
   const copy =
     locale === "en"
       ? {
           fulfillment: ctx.fulfillmentType === "delivery" ? "delivery" : "pickup",
-          subject: `Order #${ctx.orderNumber} received — Safran`,
+          subject: paid
+            ? `Receipt — order #${ctx.orderNumber} paid — Safran`
+            : `Order #${ctx.orderNumber} received — Safran`,
           greeting: `Hello ${ctx.customerName},`,
-          thanks: `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}).`,
-          totalLabel: `Total: ${amount}`,
+          thanks: paid
+            ? `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}). Your online payment of ${amount} was received.`
+            : `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}).`,
+          totalLabel: paid ? `Paid: ${amount}` : `Total: ${amount}`,
           followLine: "You can follow the current status here at any time:",
           button: "Track order",
           fallbackLine: "If the button does not work:",
@@ -250,10 +271,14 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
       : {
           fulfillment:
             ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung",
-          subject: `Bestellung #${ctx.orderNumber} erhalten — Safran`,
+          subject: paid
+            ? `Quittung — Bestellung #${ctx.orderNumber} bezahlt — Safran`
+            : `Bestellung #${ctx.orderNumber} erhalten — Safran`,
           greeting: `Hallo ${ctx.customerName},`,
-          thanks: `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}).`,
-          totalLabel: `Total: ${amount}`,
+          thanks: paid
+            ? `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}). Ihre Online-Zahlung über ${amount} wurde erhalten.`
+            : `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}).`,
+          totalLabel: paid ? `Bezahlt: ${amount}` : `Total: ${amount}`,
           followLine: "Den aktuellen Status können Sie jederzeit hier verfolgen:",
           button: "Bestellung verfolgen",
           fallbackLine: "Falls der Button nicht funktioniert:",

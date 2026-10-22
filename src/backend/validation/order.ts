@@ -1,11 +1,12 @@
 import { ValidationError } from "@/backend/errors";
+import { isStripeConfigured } from "@/backend/stripe/config";
 import {
   integerInRange,
   isEmail,
   text,
 } from "@/backend/validation/primitives";
 import { isHttpUrl, isValidEmailFormat } from "@/backend/validation/email-format";
-import type { OrderRequest } from "@/backend/types";
+import type { OrderRequest, PaymentMethod } from "@/backend/types";
 
 const MENU_ITEM_ID = /^menu-(\d+)$/;
 const IDEMPOTENCY_KEY = /^[a-zA-Z0-9_-]{16,100}$/;
@@ -48,7 +49,10 @@ export function parseOrderRequest(
   if (fulfillment !== "delivery" && fulfillment !== "pickup") {
     throw new ValidationError("invalid_fulfillment", "Ungültige Lieferart.");
   }
-  if (paymentMethod !== "cash") {
+  if (paymentMethod !== "cash" && paymentMethod !== "card") {
+    throw new ValidationError("invalid_payment", "Ungültige Zahlungsart.");
+  }
+  if (paymentMethod === "card" && !isStripeConfigured()) {
     throw new ValidationError(
       "payment_unavailable",
       "Online-Zahlung ist derzeit nicht verfügbar.",
@@ -145,7 +149,7 @@ export function parseOrderRequest(
   return {
     idempotencyKey,
     fulfillment,
-    paymentMethod,
+    paymentMethod: paymentMethod as PaymentMethod,
     acceptedNoCancellation: true,
     customer: parsedCustomer,
     address: parsedAddress,

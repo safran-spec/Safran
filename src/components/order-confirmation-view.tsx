@@ -16,6 +16,8 @@ export function OrderConfirmationView({
   orderNumber,
   status,
   fulfillmentType,
+  paymentMethod = "cash",
+  paymentStatus = "pending",
   items,
   total,
 }: {
@@ -23,6 +25,8 @@ export function OrderConfirmationView({
   orderNumber: string;
   status: string;
   fulfillmentType: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
   items: OrderConfirmationItem[];
   total: number;
 }) {
@@ -33,6 +37,15 @@ export function OrderConfirmationView({
       style: "currency",
       currency: "CHF",
     }).format(value);
+
+  const paymentNote =
+    paymentMethod === "card"
+      ? paymentStatus === "paid"
+        ? t("order.page.paidOnline")
+        : t("order.page.paymentPending")
+      : fulfillmentType === "delivery"
+        ? t("order.page.cashOnDelivery")
+        : t("order.page.cashOnPickup");
 
   return (
     <div className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm sm:p-6 lg:p-7">
@@ -85,11 +98,7 @@ export function OrderConfirmationView({
               <span>{t("checkout.total")}</span>
               <span className="tabular-nums">{formatCurrency(total)}</span>
             </div>
-            <p className="mt-1.5 text-[11px] text-muted">
-              {fulfillmentType === "delivery"
-                ? t("order.page.cashOnDelivery")
-                : t("order.page.cashOnPickup")}
-            </p>
+            <p className="mt-1.5 text-[11px] text-muted">{paymentNote}</p>
           </div>
         </aside>
       </div>

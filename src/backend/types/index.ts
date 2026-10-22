@@ -9,7 +9,7 @@ import type { AppRole } from "@/backend/domain/roles";
 
 export type { Fulfillment, OrderStatus, AppRole };
 
-export type PaymentMethod = "cash";
+export type PaymentMethod = "cash" | "card";
 
 export type CustomerContact = {
   firstName: string;
@@ -52,6 +52,9 @@ export type CreatedOrder = {
   total: number;
   currency: "CHF";
   status: string;
+  /** Present when the guest must finish payment on Stripe Checkout. */
+  checkoutUrl?: string;
+  paymentMethod: PaymentMethod;
 };
 
 /** Identity resolved from the trusted server-side session, never from input. */
