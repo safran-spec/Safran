@@ -31,8 +31,17 @@ export async function createOrderPaymentIntent(input: {
   const stripe = getStripe();
   const amount = chfToStripeAmount(input.totalChf);
 
+  // Stripe CHF minimum is 0.50 (50 Rappen). Reject early with a clear log.
   if (!Number.isFinite(amount) || amount < 50) {
-    throw new Error("Order total is too low for Stripe payment.");
+    console.error("[stripe] amount below CHF 0.50 minimum", {
+      totalChf: input.totalChf,
+      amount,
+      orderId: input.orderId,
+      orderNumber: input.orderNumber,
+    });
+    throw new Error(
+      `Order total is too low for Stripe payment (CHF ${input.totalChf}, min 0.50).`,
+    );
   }
 
   return stripe.paymentIntents.create({

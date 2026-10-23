@@ -250,19 +250,21 @@ export async function createCashOrder(
   }
 
   if (payOnline) {
+    // Prefer the in-memory priced total — never trust a missing/zero RPC echo.
+    const chargeTotal = money(totals.total) || money(result.order.total);
     const clientSecret = await startStripePaymentIntent({
       db,
       orderId: result.order.id,
       orderNumber: result.order.order_number,
       confirmationToken: result.order.confirmation_token,
-      total: money(result.order.total),
+      total: chargeTotal,
       customerEmail: request.customer.email,
     });
 
     return {
       orderNumber: result.order.order_number,
       confirmationToken: result.order.confirmation_token,
-      total: money(result.order.total),
+      total: chargeTotal,
       currency: "CHF",
       status: result.order.status,
       clientSecret,
@@ -360,12 +362,20 @@ async function startStripePaymentIntent(input: {
   total: number;
   customerEmail: string;
 }): Promise<string> {
+  const totalChf = money(input.total);
+  if (totalChf < 0.5) {
+    throw new UnavailableError(
+      "payment_amount_too_low",
+      "Online-Zahlung ist ab CHF 0.50 möglich. Bitte Warenkorb prüfen.",
+    );
+  }
+
   try {
     const intent = await createOrderPaymentIntent({
       orderId: input.orderId,
       orderNumber: input.orderNumber,
       confirmationToken: input.confirmationToken,
-      totalChf: input.total,
+      totalChf,
       customerEmail: input.customerEmail,
     });
 

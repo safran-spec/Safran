@@ -198,6 +198,8 @@ export const messages = {
       "Die Bestellung konnte nicht gespeichert werden.",
     "checkout.err.payment_unavailable":
       "Online-Zahlung ist derzeit nicht verfügbar.",
+    "checkout.err.payment_amount_too_low":
+      "Online-Zahlung ist ab CHF 0.50 möglich. Bitte Warenkorb prüfen.",
     "checkout.err.minimum_not_met":
       "Der Mindestbestellwert für diese Bestellung ist nicht erreicht.",
     "checkout.err.invalid_customer": "Bitte prüfen Sie Ihre Kontaktdaten.",
@@ -845,6 +847,8 @@ export const messages = {
     "checkout.err.order_failed": "The order could not be saved.",
     "checkout.err.payment_unavailable":
       "Online payment is currently unavailable.",
+    "checkout.err.payment_amount_too_low":
+      "Online payment requires at least CHF 0.50. Please check your cart.",
     "checkout.err.minimum_not_met":
       "The minimum order value for this order has not been reached.",
     "checkout.err.invalid_customer": "Please check your contact details.",

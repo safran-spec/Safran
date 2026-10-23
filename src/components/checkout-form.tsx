@@ -22,6 +22,7 @@ const CHECKOUT_ERROR_KEYS = {
   ordering_unavailable: "checkout.err.ordering_unavailable",
   order_failed: "checkout.err.order_failed",
   payment_unavailable: "checkout.err.payment_unavailable",
+  payment_amount_too_low: "checkout.err.payment_amount_too_low",
   minimum_not_met: "checkout.err.minimum_not_met",
   invalid_customer: "checkout.err.invalid_customer",
   invalid_address: "checkout.err.invalid_address",
