@@ -52,7 +52,12 @@ export type CreatedOrder = {
   total: number;
   currency: "CHF";
   status: string;
-  /** Present when the guest must finish payment on Stripe Checkout. */
+  /**
+   * Stripe PaymentIntent client secret for the embedded Safran payment page.
+   * When set, the guest is sent to `/zahlung/[token]` instead of hosted Checkout.
+   */
+  clientSecret?: string;
+  /** @deprecated Hosted Checkout URL — prefer clientSecret + /zahlung. */
   checkoutUrl?: string;
   paymentMethod: PaymentMethod;
 };

@@ -12,6 +12,9 @@ export const runtime = "nodejs";
 /**
  * Stripe → us. Source of truth for online payment success.
  * Local: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
+ *
+ * Events: `payment_intent.succeeded` (embedded page) and
+ * `checkout.session.completed` (legacy hosted Checkout).
  */
 export async function POST(request: Request) {
   if (!isStripeConfigured()) {
@@ -46,6 +49,17 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (event.type === "payment_intent.succeeded") {
+      const intent = event.data.object as Stripe.PaymentIntent;
+      const orderId = intent.metadata?.order_id;
+      if (orderId) {
+        await markOrderPaidFromStripe({
+          orderId,
+          paymentReference: intent.id,
+        });
+      }
+    }
+
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const orderId = session.metadata?.order_id;

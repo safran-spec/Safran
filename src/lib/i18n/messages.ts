@@ -215,6 +215,15 @@ export const messages = {
     "checkout.body":
       "Kontaktdaten eingeben, Lieferart wählen und direkt bestellen. Eine Registrierung ist nicht erforderlich.",
 
+    "pay.eyebrow": "Sichere Zahlung",
+    "pay.title": "Jetzt bezahlen",
+    "pay.orderLine": "Bestellung {number}",
+    "pay.submit": "Bezahlen {total}",
+    "pay.submitting": "Zahlung wird verarbeitet…",
+    "pay.secureHint": "Sichere Zahlung für Bestellung {number} über Stripe.",
+    "pay.cancel": "Abbrechen und zurück zur Kasse",
+    "pay.errorGeneric": "Die Zahlung konnte nicht abgeschlossen werden.",
+
     "order.status.eyebrow": "Bestellstatus",
     "order.status.deliveryTitle": "Bestellung bestätigt",
     "order.status.deliveryMessage":
@@ -281,11 +290,11 @@ export const messages = {
     "admin.dash.statusCount": "{n} Bestellung(en) heute",
     "admin.dash.payments": "Zahlungsarten",
     "admin.dash.paymentsHint": "Umsatz im Zeitraum (ohne Storno; Stripe nur bezahlt)",
-    "admin.dash.paymentsAll": "Alle Zahlungen",
+    "admin.dash.paymentsAll": "Gesamtbetrag",
     "admin.dash.paymentsAllHint": "{n} bezahlte Bestellungen",
-    "admin.dash.cash": "Bar (COD)",
+    "admin.dash.cash": "COD",
     "admin.dash.cashHint": "{n} Bestellungen bar",
-    "admin.dash.online": "Stripe (Online)",
+    "admin.dash.online": "Stripe",
     "admin.dash.onlineHint": "{n} online bezahlt",
     "admin.dash.recent": "Letzte Bestellungen",
     "admin.dash.recentHint": "Neueste Eingänge im Zeitraum",
@@ -847,6 +856,15 @@ export const messages = {
     "checkout.err.invalid_email_domain":
       "This email address does not look valid.",
 
+    "pay.eyebrow": "Secure payment",
+    "pay.title": "Pay now",
+    "pay.orderLine": "Order {number}",
+    "pay.submit": "Pay {total}",
+    "pay.submitting": "Processing payment…",
+    "pay.secureHint": "Secure payment for order {number} via Stripe.",
+    "pay.cancel": "Cancel and return to checkout",
+    "pay.errorGeneric": "Payment could not be completed.",
+
     "checkout.eyebrow": "Secure, no account needed",
     "checkout.title": "Your order",
     "checkout.body":
@@ -918,11 +936,11 @@ export const messages = {
     "admin.dash.payments": "Payment methods",
     "admin.dash.paymentsHint":
       "Revenue in this period (excl. cancellations; Stripe only when paid)",
-    "admin.dash.paymentsAll": "All payments",
+    "admin.dash.paymentsAll": "Total amount",
     "admin.dash.paymentsAllHint": "{n} paid orders",
-    "admin.dash.cash": "Cash (COD)",
+    "admin.dash.cash": "COD",
     "admin.dash.cashHint": "{n} cash orders",
-    "admin.dash.online": "Stripe (Online)",
+    "admin.dash.online": "Stripe",
     "admin.dash.onlineHint": "{n} paid online",
     "admin.dash.recent": "Recent orders",
     "admin.dash.recentHint": "Latest orders in this period",

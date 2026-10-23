@@ -38,8 +38,9 @@ import {
   sendOrderStatusEmail,
 } from "@/backend/services/email.service";
 import {
-  createOrderCheckoutSession,
+  createOrderPaymentIntent,
   retrieveCheckoutSession,
+  retrievePaymentIntent,
 } from "@/backend/stripe/checkout";
 import { isStripeConfigured } from "@/backend/stripe/config";
 import { createServiceClient } from "@/backend/supabase/clients";
@@ -249,15 +250,13 @@ export async function createCashOrder(
   }
 
   if (payOnline) {
-    const checkoutUrl = await startStripeCheckout({
+    const clientSecret = await startStripePaymentIntent({
       db,
       orderId: result.order.id,
       orderNumber: result.order.order_number,
       confirmationToken: result.order.confirmation_token,
       total: money(result.order.total),
       customerEmail: request.customer.email,
-      locale: request.locale,
-      origin: options.origin,
     });
 
     return {
@@ -266,7 +265,7 @@ export async function createCashOrder(
       total: money(result.order.total),
       currency: "CHF",
       status: result.order.status,
-      checkoutUrl,
+      clientSecret,
       paymentMethod: "card",
     };
   }
@@ -339,65 +338,135 @@ async function resumeExistingOrder(
     row.payment_status === "pending" &&
     row.customer_email
   ) {
-    const checkoutUrl = await startStripeCheckout({
+    const clientSecret = await startStripePaymentIntent({
       db,
       orderId: row.id,
       orderNumber: String(row.order_number),
       confirmationToken: String(row.confirmation_token),
       total: money(row.total),
       customerEmail: row.customer_email,
-      locale: row.locale === "en" ? "en" : "de",
-      origin,
     });
-    return { ...base, checkoutUrl };
+    return { ...base, clientSecret };
   }
 
   return base;
 }
 
-async function startStripeCheckout(input: {
+async function startStripePaymentIntent(input: {
   db: Db;
   orderId: string;
   orderNumber: string;
   confirmationToken: string;
   total: number;
   customerEmail: string;
-  locale: "de" | "en";
-  origin?: string;
 }): Promise<string> {
-  const origin =
-    input.origin?.replace(/\/$/, "") ||
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-    "http://localhost:3000";
-
   try {
-    const session = await createOrderCheckoutSession({
+    const intent = await createOrderPaymentIntent({
       orderId: input.orderId,
       orderNumber: input.orderNumber,
       confirmationToken: input.confirmationToken,
       totalChf: input.total,
       customerEmail: input.customerEmail,
-      locale: input.locale,
-      origin,
     });
 
-    if (!session.url) {
+    if (!intent.client_secret) {
       throw new UnavailableError(
         "payment_unavailable",
         "Die Zahlungsseite konnte nicht geöffnet werden.",
       );
     }
 
-    await orderRepository.setPaymentReference(input.db, input.orderId, session.id);
-    return session.url;
+    await orderRepository.setPaymentReference(input.db, input.orderId, intent.id);
+    return intent.client_secret;
   } catch (error) {
     if (error instanceof UnavailableError) throw error;
-    console.error("[stripe] checkout session failed", error);
+    console.error("[stripe] payment intent failed", error);
     throw new UnavailableError(
       "payment_unavailable",
       "Die Zahlungsseite konnte nicht geöffnet werden.",
     );
   }
+}
+
+/**
+ * Loads (or recreates) a PaymentIntent client secret for an unpaid card order.
+ * Used by the embedded `/zahlung/[token]` page.
+ */
+export async function getPaymentClientSecretForToken(
+  token: string,
+): Promise<{
+  clientSecret: string;
+  publishableKey: string;
+  orderNumber: string;
+  total: number;
+  currency: "CHF";
+  customerEmail: string;
+} | null> {
+  if (!isStripeConfigured() || !isUuid(token)) return null;
+
+  const { getStripePublishableKey } = await import("@/backend/stripe/checkout");
+  const publishableKey = getStripePublishableKey();
+  if (!publishableKey) return null;
+
+  const db = trustedClient();
+  const orderResult = await orderRepository.findByConfirmationToken(db, token);
+  const order = orderResult.data;
+  if (!order) return null;
+  if (String(order.payment_method ?? "") !== "card") return null;
+  if (String(order.payment_status ?? "") === "paid") return null;
+
+  const full = await orderRepository.findOrderById(db, order.id);
+  const row = full.data;
+  if (!row?.customer_email) return null;
+
+  const existingRef = row.payment_reference;
+  if (existingRef && /^pi_/.test(existingRef)) {
+    try {
+      const existing = await retrievePaymentIntent(existingRef);
+      if (
+        existing.client_secret &&
+        (existing.status === "requires_payment_method" ||
+          existing.status === "requires_confirmation" ||
+          existing.status === "requires_action")
+      ) {
+        return {
+          clientSecret: existing.client_secret,
+          publishableKey,
+          orderNumber: row.order_number,
+          total: money(row.total),
+          currency: "CHF",
+          customerEmail: row.customer_email,
+        };
+      }
+      if (existing.status === "succeeded") {
+        await markOrderPaidFromStripe({
+          orderId: row.id,
+          paymentReference: existing.id,
+        });
+        return null;
+      }
+    } catch (error) {
+      console.error("[stripe] retrieve PI failed", error);
+    }
+  }
+
+  const clientSecret = await startStripePaymentIntent({
+    db,
+    orderId: row.id,
+    orderNumber: row.order_number,
+    confirmationToken: row.confirmation_token,
+    total: money(row.total),
+    customerEmail: row.customer_email,
+  });
+
+  return {
+    clientSecret,
+    publishableKey,
+    orderNumber: row.order_number,
+    total: money(row.total),
+    currency: "CHF",
+    customerEmail: row.customer_email,
+  };
 }
 
 async function notifyOrderCreated(input: {
@@ -527,32 +596,45 @@ export async function markOrderPaidFromStripe(input: {
 }
 
 /**
- * Backup when the webhook is slow or missing locally: after Stripe redirects
- * back with `session_id`, confirm the session and fulfill the order.
+ * Backup when the webhook is slow: confirm PaymentIntent or legacy Checkout
+ * Session and fulfill the order.
  */
 export async function syncStripeCheckoutSession(input: {
   confirmationToken: string;
-  sessionId: string;
+  sessionId?: string;
+  paymentIntentId?: string;
 }): Promise<void> {
   if (!isStripeConfigured() || !isUuid(input.confirmationToken)) return;
-  if (!/^cs_[a-zA-Z0-9_]+$/.test(input.sessionId)) return;
 
   try {
-    const session = await retrieveCheckoutSession(input.sessionId);
-    if (session.payment_status !== "paid" && session.status !== "complete") {
+    if (input.paymentIntentId && /^pi_[a-zA-Z0-9_]+$/.test(input.paymentIntentId)) {
+      const intent = await retrievePaymentIntent(input.paymentIntentId);
+      if (intent.status !== "succeeded") return;
+      const metaToken = intent.metadata?.confirmation_token;
+      const orderId = intent.metadata?.order_id;
+      if (!orderId || metaToken !== input.confirmationToken) return;
+      await markOrderPaidFromStripe({
+        orderId,
+        paymentReference: intent.id,
+      });
       return;
     }
 
-    const metaToken = session.metadata?.confirmation_token;
-    const orderId = session.metadata?.order_id;
-    if (!orderId || metaToken !== input.confirmationToken) return;
-
-    await markOrderPaidFromStripe({
-      orderId,
-      paymentReference: session.id,
-    });
+    if (input.sessionId && /^cs_[a-zA-Z0-9_]+$/.test(input.sessionId)) {
+      const session = await retrieveCheckoutSession(input.sessionId);
+      if (session.payment_status !== "paid" && session.status !== "complete") {
+        return;
+      }
+      const metaToken = session.metadata?.confirmation_token;
+      const orderId = session.metadata?.order_id;
+      if (!orderId || metaToken !== input.confirmationToken) return;
+      await markOrderPaidFromStripe({
+        orderId,
+        paymentReference: session.id,
+      });
+    }
   } catch (error) {
-    console.error("[stripe] session sync failed", error);
+    console.error("[stripe] payment sync failed", error);
   }
 }
 

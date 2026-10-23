@@ -9,10 +9,51 @@ export function chfToStripeAmount(totalChf: number): number {
   return Math.round(totalChf * CHF_CENTS);
 }
 
+export function getStripePublishableKey(): string {
+  return (
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
+    process.env.STRIPE_PUBLISHABLE_KEY?.trim() ||
+    ""
+  );
+}
+
 /**
- * One Checkout Session for the whole order total. Menu SKUs stay in our DB —
- * Stripe only sees a single line for the restaurant order.
+ * PaymentIntent for embedded Safran payment page (Payment Element).
+ * Menu SKUs stay in our DB — Stripe only charges the order total.
  */
+export async function createOrderPaymentIntent(input: {
+  orderId: string;
+  orderNumber: string;
+  confirmationToken: string;
+  totalChf: number;
+  customerEmail: string;
+}): Promise<Stripe.PaymentIntent> {
+  const stripe = getStripe();
+  const amount = chfToStripeAmount(input.totalChf);
+
+  if (!Number.isFinite(amount) || amount < 50) {
+    throw new Error("Order total is too low for Stripe payment.");
+  }
+
+  return stripe.paymentIntents.create({
+    amount,
+    currency: "chf",
+    automatic_payment_methods: { enabled: true },
+    receipt_email: input.customerEmail,
+    description: `Bestellung ${input.orderNumber} — Safran`,
+    metadata: {
+      order_id: input.orderId,
+      order_number: input.orderNumber,
+      confirmation_token: input.confirmationToken,
+    },
+  });
+}
+
+export async function retrievePaymentIntent(paymentIntentId: string) {
+  return getStripe().paymentIntents.retrieve(paymentIntentId);
+}
+
+/** @deprecated Prefer PaymentIntent + embedded page; kept for old webhook sessions. */
 export async function createOrderCheckoutSession(input: {
   orderId: string;
   orderNumber: string;
@@ -27,7 +68,6 @@ export async function createOrderCheckoutSession(input: {
   const amount = chfToStripeAmount(input.totalChf);
 
   if (!Number.isFinite(amount) || amount < 50) {
-    // Stripe CHF minimum is typically 0.50
     throw new Error("Order total is too low for Stripe Checkout.");
   }
 
@@ -56,7 +96,6 @@ export async function createOrderCheckoutSession(input: {
       confirmation_token: input.confirmationToken,
     },
     payment_intent_data: {
-      // Stripe's own payment receipt (separate from our Resend order email).
       receipt_email: input.customerEmail,
       metadata: {
         order_id: input.orderId,

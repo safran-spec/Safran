@@ -300,6 +300,7 @@ export function CheckoutForm({
       });
       const result = (await response.json()) as {
         confirmationToken?: string;
+        clientSecret?: string;
         checkoutUrl?: string;
         message?: string;
         error?: string;
@@ -322,9 +323,13 @@ export function CheckoutForm({
       }
 
       clearCart();
-      // Online pay: leave for Stripe Checkout. Cash: go straight to status.
-      // Full navigation avoids soft-router crashes when the DOM was mutated
-      // (browser translate extensions, etc.) during checkout.
+      // Card: Safran payment page. Legacy hosted Checkout URL still supported.
+      // Cash: confirmation. Full navigation avoids soft-router crashes when
+      // the DOM was mutated (browser translate extensions, etc.) during checkout.
+      if (result.clientSecret) {
+        window.location.assign(`/zahlung/${result.confirmationToken}`);
+        return;
+      }
       if (result.checkoutUrl) {
         window.location.assign(result.checkoutUrl);
         return;

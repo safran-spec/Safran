@@ -86,7 +86,7 @@ export function findByConfirmationToken(db: Db, token: string) {
   return db
     .from("orders")
     .select(
-      "id, order_number, status, fulfillment_type, payment_status, payment_method, subtotal, delivery_fee, total, currency, created_at, order_items(name, quantity, unit_price, line_total), order_status_events(to_status, note, created_at)",
+      "id, order_number, status, fulfillment_type, payment_status, payment_method, locale, subtotal, delivery_fee, total, currency, created_at, order_items(name, quantity, unit_price, line_total), order_status_events(to_status, note, created_at)",
     )
     .eq("confirmation_token", token)
     // Embedded rows have no implicit order, so sort them here to keep the cart

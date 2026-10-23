@@ -24,15 +24,23 @@ export default async function OrderConfirmationPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ session_id?: string }>;
+  searchParams: Promise<{
+    session_id?: string;
+    payment_intent?: string;
+    redirect_status?: string;
+  }>;
 }) {
   const { token } = await params;
-  const { session_id: sessionId } = await searchParams;
+  const {
+    session_id: sessionId,
+    payment_intent: paymentIntentId,
+  } = await searchParams;
 
-  // Success-URL backup when the webhook has not fired yet (common in local test).
-  if (sessionId) {
+  // Return-URL backup when the webhook has not fired yet (common in local test).
+  if (paymentIntentId || sessionId) {
     await syncStripeCheckoutSession({
       confirmationToken: token,
+      paymentIntentId,
       sessionId,
     });
   }
