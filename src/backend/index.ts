@@ -13,6 +13,7 @@ export * from "@/backend/types";
 
 export { CACHE_TAGS } from "@/backend/cache/tags";
 export {
+  refreshDeliveryZones,
   refreshMenu,
   refreshSettings,
   refreshStoreStatus,
@@ -50,12 +51,15 @@ export * as menuService from "@/backend/services/menu.service";
 export * as orderService from "@/backend/services/order.service";
 export * as printService from "@/backend/services/print.service";
 export * as settingsService from "@/backend/services/settings.service";
+export * as deliveryZoneService from "@/backend/services/delivery-zone.service";
 export {
+  getCheckoutPricing,
   getFlavorGalleryImages,
   getHomepageCategories,
   getMenuCategories,
   getStorefrontChrome,
   getStorefrontData,
+  type CheckoutPricing,
   type HomepageCategory,
   type StorefrontChrome,
   type StorefrontData,

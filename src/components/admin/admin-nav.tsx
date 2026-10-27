@@ -27,6 +27,11 @@ const navigation: Array<{ href: string; labelKey: MessageKey; icon: string }> = 
     icon: "/images/percent-discount-svgrepo-com.svg",
   },
   {
+    href: "/admin/delivery-zones",
+    labelKey: "admin.nav.zones",
+    icon: "/images/online-delivery-svgrepo-com.svg",
+  },
+  {
     href: "/admin/settings",
     labelKey: "admin.nav.settings",
     icon: "/images/setting-2-svgrepo-com.svg",

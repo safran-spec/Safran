@@ -6,6 +6,8 @@ import {
   calculateOrderTotals,
   discountedPrice,
   money,
+  normalizePostalCode,
+  resolveDeliveryMinimum,
   type PricedLine,
   type PricingRules,
 } from "@/backend/domain/order-pricing";
@@ -81,6 +83,27 @@ describe("order totals", () => {
       () => assertMinimumOrder(10, "delivery", rules),
       /CHF 30\.00/,
     );
+  });
+});
+
+describe("postal delivery minimums", () => {
+  const zones = [
+    { postalCode: "8590", minimumOrder: 40 },
+    { postalCode: "8280", minimumOrder: 50 },
+  ];
+
+  it("normalizes spaces in Swiss PLZ", () => {
+    assert.equal(normalizePostalCode(" 85 90 "), "8590");
+  });
+
+  it("uses the zone minimum when the PLZ matches", () => {
+    assert.equal(resolveDeliveryMinimum("8590", zones, 30), 40);
+    assert.equal(resolveDeliveryMinimum("85 90", zones, 30), 40);
+  });
+
+  it("falls back to the global delivery minimum", () => {
+    assert.equal(resolveDeliveryMinimum("8000", zones, 30), 30);
+    assert.equal(resolveDeliveryMinimum("", zones, 30), 30);
   });
 });
 

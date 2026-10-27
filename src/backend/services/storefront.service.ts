@@ -10,6 +10,7 @@ import {
 import {
   readCategories,
   readContentBlocks,
+  readDeliveryZoneMinimums,
   readItemPreviews,
   readItems,
   readOpeningHours,
@@ -46,6 +47,14 @@ export type StorefrontChrome = {
   settings: StorefrontSettings;
   hours: OpeningDay[];
   statusConfig: StoreStatusConfig;
+};
+
+export type CheckoutPricing = {
+  deliveryMinimum: number;
+  pickupMinimum: number;
+  deliveryFee: number;
+  /** Active PLZ → minimum order (CHF). */
+  zoneMinimums: Record<string, number>;
 };
 
 export type StorefrontData = StorefrontChrome & {
@@ -311,6 +320,27 @@ export const getStorefrontChrome = cache(async (): Promise<StorefrontChrome> => 
       hours,
       ...normalizeOverride(availabilityRows),
     },
+  };
+});
+
+export const getCheckoutPricing = cache(async (): Promise<CheckoutPricing> => {
+  const [settingsRows, zoneRows] = await Promise.all([
+    readSiteSettings(),
+    readDeliveryZoneMinimums(),
+  ]);
+  const values = keyValueMap(settingsRows);
+  const zoneMinimums: Record<string, number> = {};
+  for (const row of zoneRows ?? []) {
+    const code = text(row.postal_code);
+    const minimum = number(row.minimum_order);
+    if (code && minimum !== undefined) zoneMinimums[code] = minimum;
+  }
+
+  return {
+    deliveryMinimum: number(values.delivery_minimum) ?? 0,
+    pickupMinimum: number(values.pickup_minimum) ?? 0,
+    deliveryFee: number(values.delivery_fee) ?? 0,
+    zoneMinimums,
   };
 });
 

@@ -72,9 +72,15 @@ function BagIcon() {
 export function CheckoutForm({
   storeOpen = true,
   closedMessage,
+  deliveryMinimum = 0,
+  pickupMinimum = 0,
+  zoneMinimums = {},
 }: {
   storeOpen?: boolean;
   closedMessage?: string;
+  deliveryMinimum?: number;
+  pickupMinimum?: number;
+  zoneMinimums?: Record<string, number>;
 }) {
   const { locale, t } = useLocale();
   const {
@@ -98,6 +104,7 @@ export function CheckoutForm({
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
   const [notice, setNotice] = useState("");
   const [emailValue, setEmailValue] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [emailError, setEmailError] = useState("");
   const [emailChecking, setEmailChecking] = useState(false);
   const [emailOk, setEmailOk] = useState(false);
@@ -249,6 +256,19 @@ export function CheckoutForm({
       return;
     }
     if (!items.length || !acceptedPolicy || submitting) return;
+
+    const applicableMinimum =
+      fulfillment === "delivery"
+        ? zoneMinimums[postalCode.trim()] ?? deliveryMinimum
+        : pickupMinimum;
+    if (applicableMinimum > 0 && subtotal < applicableMinimum) {
+      setNotice(
+        t("checkout.err.minimum_not_met_amount", {
+          amount: formatCurrency(applicableMinimum),
+        }),
+      );
+      return;
+    }
 
     const key =
       idempotencyKey ||
@@ -513,8 +533,32 @@ export function CheckoutForm({
                   name="postalCode"
                   autoComplete="postal-code"
                   inputMode="numeric"
+                  pattern="[0-9]{4}"
+                  maxLength={4}
                   required
+                  value={postalCode}
+                  onChange={(event) =>
+                    setPostalCode(event.target.value.replace(/\D/g, "").slice(0, 4))
+                  }
                 />
+                <span className="mt-1.5 block text-xs font-normal text-muted">
+                  {(() => {
+                    const code = postalCode.trim();
+                    const zoneMin =
+                      code.length === 4 ? zoneMinimums[code] : undefined;
+                    const amount =
+                      zoneMin !== undefined ? zoneMin : deliveryMinimum;
+                    if (amount <= 0) return t("checkout.postalRequired");
+                    return zoneMin !== undefined
+                      ? t("checkout.minimumHint", {
+                          postal: code,
+                          amount: formatCurrency(amount),
+                        })
+                      : t("checkout.minimumDefaultHint", {
+                          amount: formatCurrency(amount),
+                        });
+                  })()}
+                </span>
               </label>
               <label className="text-sm font-medium sm:col-span-4">
                 {t("checkout.city")}

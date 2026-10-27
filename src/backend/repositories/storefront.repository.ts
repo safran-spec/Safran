@@ -71,3 +71,12 @@ export const readStoreAvailability = cache(() =>
     CACHE_SECONDS.status,
   ),
 );
+
+export const readDeliveryZoneMinimums = cache(() =>
+  readRows(
+    "delivery_zone_minimums",
+    "select=postal_code,minimum_order&is_active=eq.true&order=postal_code",
+    [CACHE_TAGS.deliveryZones],
+    CACHE_SECONDS.deliveryZones,
+  ),
+);

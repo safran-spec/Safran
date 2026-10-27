@@ -31,6 +31,7 @@ import * as menuRepository from "@/backend/repositories/menu.repository";
 import * as orderRepository from "@/backend/repositories/order.repository";
 import * as printJobRepository from "@/backend/repositories/print-job.repository";
 import * as settingsRepository from "@/backend/repositories/settings.repository";
+import { resolveOrderDeliveryMinimum } from "@/backend/services/delivery-zone.service";
 import { enqueueOrderPrintJob } from "@/backend/services/print.service";
 import {
   sendOrderNotifyEmail,
@@ -181,9 +182,19 @@ export async function createCashOrder(
     };
   });
 
+  const globalDeliveryMinimum = Number(settings.minimum_order ?? 0);
+  const deliveryMinimum =
+    request.fulfillment === "delivery"
+      ? await resolveOrderDeliveryMinimum(
+          db,
+          request.address?.postalCode,
+          globalDeliveryMinimum,
+        )
+      : globalDeliveryMinimum;
+
   const rules: PricingRules = {
     deliveryFee: Number(settings.delivery_fee ?? 0),
-    deliveryMinimum: Number(settings.minimum_order ?? 0),
+    deliveryMinimum,
     pickupMinimum: Number(settings.pickup_minimum ?? 0),
   };
   const totals = calculateOrderTotals(lines, request.fulfillment, rules);

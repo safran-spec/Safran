@@ -19,6 +19,8 @@ type PendingSubmitButtonProps = {
   requireDirty?: boolean;
   /** Lets a second button in the same form submit to another Server Action. */
   formAction?: (formData: FormData) => void | Promise<void>;
+  /** Associates the button with a form by id when it sits outside that form. */
+  form?: string;
   /** Additional reason to block submission, e.g. an empty selection. */
   disabled?: boolean;
 };
@@ -46,6 +48,7 @@ export function PendingSubmitButton({
   variant = "primary",
   requireDirty = true,
   formAction,
+  form,
   disabled = false,
 }: PendingSubmitButtonProps) {
   const { pending } = useFormStatus();
@@ -58,6 +61,7 @@ export function PendingSubmitButton({
   return (
     <button
       type="submit"
+      form={form}
       formAction={formAction}
       disabled={pending || blockedByDirty || disabled}
       aria-busy={pending}

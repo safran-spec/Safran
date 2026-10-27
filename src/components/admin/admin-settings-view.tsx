@@ -214,6 +214,9 @@ export function AdminSettingsView({
                 step="0.05"
                 defaultValue={Number(settings.delivery_minimum ?? 0)}
               />
+              <span className="mt-1.5 block text-xs font-normal text-muted">
+                {t("admin.settings.deliveryMinHint")}
+              </span>
             </label>
             <label className="block text-sm font-semibold">
               {t("admin.settings.pickupMin")}

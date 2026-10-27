@@ -3,12 +3,14 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import {
+  refreshDeliveryZones,
   refreshMenu,
   refreshSettings,
   refreshStoreStatus,
 } from "@/backend/cache/revalidate";
 import { AuthorizationError, ConflictError, isAppError } from "@/backend/errors";
 import { signInToBackOffice, signOut } from "@/backend/services/auth.service";
+import * as deliveryZoneService from "@/backend/services/delivery-zone.service";
 import * as menuService from "@/backend/services/menu.service";
 import * as orderService from "@/backend/services/order.service";
 import * as printService from "@/backend/services/print.service";
@@ -24,6 +26,7 @@ const LOGIN_PATH = "/admin/login";
 const MENU_PATH = "/admin/menu";
 const DISCOUNTS_PATH = "/admin/discounts";
 const SETTINGS_PATH = "/admin/settings";
+const DELIVERY_ZONES_PATH = "/admin/delivery-zones";
 
 function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -459,5 +462,61 @@ export async function clearOrderAlertSoundAction(_formData?: FormData) {
     () => settingsService.clearOrderAlertSound(),
     "admin.msg.soundRemoved",
     refreshSettings,
+  );
+}
+
+export async function updateDefaultDeliveryMinimumAction(formData: FormData) {
+  await handle(
+    DELIVERY_ZONES_PATH,
+    () =>
+      settingsService.updateDefaultDeliveryMinimum(
+        numberValue(formData, "minimum_order"),
+      ),
+    "admin.msg.defaultMinimumSaved",
+    () => {
+      refreshSettings();
+      refreshDeliveryZones();
+    },
+  );
+}
+
+export async function createDeliveryZoneAction(formData: FormData) {
+  await handle(
+    DELIVERY_ZONES_PATH,
+    () =>
+      deliveryZoneService.createDeliveryZone({
+        postalCode: text(formData, "postal_code"),
+        minimumOrder: numberValue(formData, "minimum_order"),
+        isActive: checked(formData, "is_active"),
+      }),
+    "admin.msg.zoneCreated",
+    refreshDeliveryZones,
+  );
+}
+
+export async function updateDeliveryZoneAction(formData: FormData) {
+  await handle(
+    DELIVERY_ZONES_PATH,
+    () =>
+      deliveryZoneService.updateDeliveryZone({
+        id: numberValue(formData, "id"),
+        postalCode: text(formData, "postal_code"),
+        minimumOrder: numberValue(formData, "minimum_order"),
+        isActive: checked(formData, "is_active"),
+      }),
+    "admin.msg.zoneSaved",
+    refreshDeliveryZones,
+  );
+}
+
+export async function deleteDeliveryZoneAction(formData: FormData) {
+  await handle(
+    DELIVERY_ZONES_PATH,
+    () =>
+      deliveryZoneService.deleteDeliveryZone({
+        id: numberValue(formData, "id"),
+      }),
+    "admin.msg.zoneDeleted",
+    refreshDeliveryZones,
   );
 }

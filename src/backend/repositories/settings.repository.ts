@@ -144,6 +144,18 @@ export function upsertSiteSettings(db: Db, input: RestaurantSettingsInput) {
   return db.from("site_settings").upsert(rows, { onConflict: "key" });
 }
 
+/** Fallback delivery minimum when the order PLZ has no zone rule. */
+export function upsertDeliveryMinimum(db: Db, deliveryMinimum: number) {
+  return db.from("site_settings").upsert(
+    {
+      key: "delivery_minimum",
+      value: deliveryMinimum,
+      is_public: true,
+    },
+    { onConflict: "key" },
+  );
+}
+
 export function upsertFulfillmentOptions(db: Db, input: RestaurantSettingsInput) {
   return db.from("store_availability").upsert({
     id: true,

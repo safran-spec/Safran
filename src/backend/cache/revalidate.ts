@@ -33,3 +33,10 @@ export function refreshSettings() {
   revalidatePath("/admin/settings");
   revalidatePath("/admin", "layout");
 }
+
+export function refreshDeliveryZones() {
+  updateTag(CACHE_TAGS.deliveryZones);
+  updateTag(CACHE_TAGS.chrome);
+  revalidatePath("/kasse");
+  revalidatePath("/admin/delivery-zones");
+}

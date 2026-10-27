@@ -17,6 +17,13 @@ export function useDirtyForm() {
   return useContext(DirtyFormContext);
 }
 
+/** Renders children only after the parent `DirtyForm` has been edited. */
+export function DirtyOnly({ children }: { children: ReactNode }) {
+  const dirty = useDirtyForm();
+  if (!dirty) return null;
+  return children;
+}
+
 type DirtyFormProps = Omit<FormHTMLAttributes<HTMLFormElement>, "onChange" | "onInput"> & {
   children: ReactNode;
   /** Start enabled (rare). Default: disabled until the user changes something. */

@@ -78,6 +78,30 @@ export function minimumFor(fulfillment: Fulfillment, rules: PricingRules): numbe
   );
 }
 
+/** Swiss PLZ: trim + drop spaces so "85 90" matches "8590". */
+export function normalizePostalCode(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+}
+
+/**
+ * Delivery minimum for a postal code. Exact PLZ match wins; otherwise the
+ * global delivery minimum from settings is used.
+ */
+export function resolveDeliveryMinimum(
+  postalCode: unknown,
+  zones: ReadonlyArray<{ postalCode: string; minimumOrder: number }>,
+  fallback: number,
+): number {
+  const code = normalizePostalCode(postalCode);
+  if (!code) return money(fallback);
+  const match = zones.find(
+    (zone) => normalizePostalCode(zone.postalCode) === code,
+  );
+  return money(match ? match.minimumOrder : fallback);
+}
+
 export function assertMinimumOrder(
   subtotal: number,
   fulfillment: Fulfillment,

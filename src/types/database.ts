@@ -212,6 +212,15 @@ export type StoreSettings = {
   closed_message: string | null;
 };
 
+export type DeliveryZoneMinimum = {
+  id: number;
+  postal_code: string;
+  minimum_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -266,6 +275,17 @@ export interface Database {
           value?: Json;
           description?: string | null;
           is_public?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      delivery_zone_minimums: TableDefinition<
+        DeliveryZoneMinimum,
+        {
+          id?: number;
+          postal_code: string;
+          minimum_order: number;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         }

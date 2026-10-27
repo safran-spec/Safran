@@ -2,6 +2,7 @@ export const CACHE_TAGS = {
   chrome: "storefront-chrome",
   menu: "storefront-menu",
   status: "store-status",
+  deliveryZones: "delivery-zones",
 } as const;
 
 /**
@@ -21,4 +22,5 @@ export const CACHE_SECONDS = {
   chrome: 300,
   menu: 300,
   status: 300,
+  deliveryZones: 300,
 } as const;

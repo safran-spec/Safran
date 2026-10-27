@@ -9,6 +9,7 @@ import {
   validateOrderAlertAudio,
 } from "@/backend/media/order-alert-audio";
 import * as settingsRepository from "@/backend/repositories/settings.repository";
+import { nonNegativeNumber } from "@/backend/validation/primitives";
 import { parseOpeningHours, parseRestaurantSettings } from "@/backend/validation/settings";
 import type { Database, Json } from "@/types/database";
 
@@ -186,6 +187,23 @@ export async function updateRestaurantSettings(input: Record<string, unknown>) {
   ]);
 
   const error = settings.error ?? availability.error;
+  if (error) throw new UnavailableError("settings_save_failed", error.message);
+}
+
+/**
+ * Global delivery minimum used when the customer's PLZ is not in the zone list.
+ * Editable from both Settings and the PLZ-minimums admin page.
+ */
+export async function updateDefaultDeliveryMinimum(
+  deliveryMinimum: unknown,
+): Promise<void> {
+  const db = await settingsContext();
+  const value = nonNegativeNumber(
+    deliveryMinimum,
+    "minimum_invalid",
+    "Mindestbestellwerte dürfen nicht negativ sein.",
+  );
+  const { error } = await settingsRepository.upsertDeliveryMinimum(db, value);
   if (error) throw new UnavailableError("settings_save_failed", error.message);
 }
 
