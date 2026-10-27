@@ -41,7 +41,7 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
  * sees on the confirmation page.
  */
 export const AUTO_COMPLETE_MINUTES = {
-  delivery: 45,
+  delivery: 60,
   pickup: 30,
 } as const;
 

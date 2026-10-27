@@ -229,7 +229,7 @@ export const messages = {
     "order.status.eyebrow": "Bestellstatus",
     "order.status.deliveryTitle": "Bestellung bestätigt",
     "order.status.deliveryMessage":
-      "Ihre Bestellung ist bestätigt. Sie erhalten Ihre Bestellung in ca. 45 Minuten.",
+      "Ihre Bestellung ist bestätigt. Sie erhalten Ihre Bestellung in ca. 60 Minuten.",
     "order.status.pickupTitle": "Bestellung bestätigt",
     "order.status.pickupMessage":
       "Ihre Bestellung ist in ca. 30 Minuten bereit. Sie können sie nach 30 Minuten abholen.",
@@ -877,7 +877,7 @@ export const messages = {
     "order.status.eyebrow": "Order status",
     "order.status.deliveryTitle": "Order confirmed",
     "order.status.deliveryMessage":
-      "Your order is confirmed. You will receive your order in about 45 minutes.",
+      "Your order is confirmed. You will receive your order in about 60 minutes.",
     "order.status.pickupTitle": "Order confirmed",
     "order.status.pickupMessage":
       "Your order will be ready in about 30 minutes. You can pick it up after 30 minutes.",

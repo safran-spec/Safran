@@ -653,7 +653,7 @@ const AUTO_COMPLETE_THROTTLE_MS = 20_000;
 let lastAutoCompleteAt = 0;
 
 /**
- * Closes orders whose promised waiting time has passed (45 min delivery, 30 min
+ * Closes orders whose promised waiting time has passed (60 min delivery, 30 min
  * pickup). There is no scheduler: every admin or status read triggers a sweep,
  * throttled so the 4s confirmation-page poll cannot hammer the database.
  *
