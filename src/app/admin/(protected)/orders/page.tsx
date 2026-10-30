@@ -45,6 +45,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           fulfillment_type: order.fulfillment_type,
           created_at: order.created_at,
           status: order.status,
+          payment_method: order.payment_method,
+          payment_status: order.payment_status,
           total: order.total,
         }))}
         count={count ?? 0}

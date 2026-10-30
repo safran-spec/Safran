@@ -49,7 +49,13 @@ import type { CreatedOrder, OrderRequest } from "@/backend/types";
 import { assertDeliverableEmail } from "@/backend/validation/email";
 import { menuItemNumber } from "@/backend/validation/order";
 import { isUuid } from "@/backend/validation/primitives";
-import type { Database, OrderStatus, PrintJob } from "@/types/database";
+import type {
+  CheckoutPaymentDraft,
+  Database,
+  Json,
+  OrderStatus,
+  PrintJob,
+} from "@/types/database";
 
 type Db = SupabaseClient<Database>;
 
@@ -72,14 +78,9 @@ function shortOrderNumber() {
   return `${day}-${suffix}`;
 }
 
-type CreateOrderOptions = {
-  /** Browser origin for Stripe success/cancel URLs (e.g. http://localhost:3000). */
-  origin?: string;
-};
-
 /**
- * Creates an order. Cash is confirmed immediately; card creates a Stripe
- * Checkout Session and only prints/emails after payment succeeds.
+ * Cash orders are created immediately. Card checkouts persist a private draft;
+ * the real order is created only after Stripe confirms payment.
  *
  * Everything that decides what the guest pays is read from the database inside
  * this function: unit prices, the delivery fee, minimum order values, whether
@@ -88,7 +89,6 @@ type CreateOrderOptions = {
  */
 export async function createCashOrder(
   request: OrderRequest,
-  options: CreateOrderOptions = {},
 ): Promise<CreatedOrder> {
   const db = trustedClient();
   const payOnline = request.paymentMethod === "card";
@@ -107,7 +107,22 @@ export async function createCashOrder(
     request.idempotencyKey,
   );
   if (duplicate.data) {
-    return resumeExistingOrder(db, duplicate.data, options.origin);
+    return resumeExistingOrder(db, duplicate.data);
+  }
+  if (payOnline) {
+    const draftResult = await orderRepository.findCheckoutDraftByIdempotencyKey(
+      db,
+      request.idempotencyKey,
+    );
+    if (draftResult.error) {
+      throw new UnavailableError(
+        "payment_unavailable",
+        "Die Zahlung konnte nicht vorbereitet werden.",
+      );
+    }
+    if (draftResult.data) {
+      return resumeCheckoutDraft(db, draftResult.data);
+    }
   }
 
   const itemNumbers = request.items.map((item) => menuItemNumber(item.id));
@@ -240,47 +255,66 @@ export async function createCashOrder(
     currency: "CHF",
   };
 
-  const result = await orderRepository.insertOrder(
-    db,
-    orderRow,
-    lines.map((line) => ({
-      menu_item_id: Number(line.menuItemId),
-      name: line.name,
-      quantity: line.quantity,
-      unit_price: line.unitPrice,
-      line_total: lineTotal(line),
-      notes: null,
-    })),
-  );
+  const orderLines = lines.map((line) => ({
+    menu_item_id: Number(line.menuItemId),
+    name: line.name,
+    quantity: line.quantity,
+    unit_price: line.unitPrice,
+    line_total: lineTotal(line),
+    notes: null,
+  }));
+
+  if (payOnline) {
+    const draft = await orderRepository.insertCheckoutDraft(db, {
+      idempotency_key: request.idempotencyKey,
+      confirmation_token: orderRow.confirmation_token,
+      order_data: orderRow as unknown as Json,
+      items: orderLines as unknown as Json,
+    });
+
+    if (draft.error || !draft.data) {
+      const raced = await orderRepository.findCheckoutDraftByIdempotencyKey(
+        db,
+        request.idempotencyKey,
+      );
+      if (raced.error || !raced.data) {
+        console.error("[stripe] checkout draft creation failed", draft.error);
+        throw new UnavailableError(
+          "payment_unavailable",
+          "Die Zahlung konnte nicht vorbereitet werden.",
+        );
+      }
+      return resumeCheckoutDraft(db, raced.data);
+    }
+
+    const chargeTotal = money(totals.total);
+    const clientSecret = await startStripePaymentIntent({
+      db,
+      checkoutDraftId: draft.data.id,
+      orderNumber: String(orderRow.order_number),
+      confirmationToken: String(orderRow.confirmation_token),
+      total: chargeTotal,
+      customerEmail: request.customer.email,
+    });
+
+    return {
+      orderNumber: String(orderRow.order_number),
+      confirmationToken: String(orderRow.confirmation_token),
+      total: chargeTotal,
+      currency: "CHF",
+      status: INITIAL_ORDER_STATUS,
+      clientSecret,
+      paymentMethod: "card",
+    };
+  }
+
+  const result = await orderRepository.insertOrder(db, orderRow, orderLines);
 
   if (!result.order) {
     throw new UnavailableError(
       "order_failed",
       "Die Bestellung konnte nicht gespeichert werden.",
     );
-  }
-
-  if (payOnline) {
-    // Prefer the in-memory priced total — never trust a missing/zero RPC echo.
-    const chargeTotal = money(totals.total) || money(result.order.total);
-    const clientSecret = await startStripePaymentIntent({
-      db,
-      orderId: result.order.id,
-      orderNumber: result.order.order_number,
-      confirmationToken: result.order.confirmation_token,
-      total: chargeTotal,
-      customerEmail: request.customer.email,
-    });
-
-    return {
-      orderNumber: result.order.order_number,
-      confirmationToken: result.order.confirmation_token,
-      total: chargeTotal,
-      currency: "CHF",
-      status: result.order.status,
-      clientSecret,
-      paymentMethod: "card",
-    };
   }
 
   await notifyOrderCreated({
@@ -334,7 +368,6 @@ async function resumeExistingOrder(
     customer_email?: string | null;
     locale?: string | null;
   },
-  origin?: string,
 ): Promise<CreatedOrder> {
   const paymentMethod = row.payment_method === "card" ? "card" : "cash";
   const base: CreatedOrder = {
@@ -365,9 +398,74 @@ async function resumeExistingOrder(
   return base;
 }
 
+function checkoutDraftOrderData(draft: CheckoutPaymentDraft) {
+  if (
+    !draft.order_data ||
+    typeof draft.order_data !== "object" ||
+    Array.isArray(draft.order_data)
+  ) {
+    throw new UnavailableError(
+      "payment_unavailable",
+      "Die Zahlung konnte nicht fortgesetzt werden.",
+    );
+  }
+  return draft.order_data as Record<string, unknown>;
+}
+
+async function resumeCheckoutDraft(
+  db: Db,
+  draft: CheckoutPaymentDraft,
+): Promise<CreatedOrder> {
+  const data = checkoutDraftOrderData(draft);
+  const base: CreatedOrder = {
+    orderNumber: String(data.order_number),
+    confirmationToken: draft.confirmation_token,
+    total: money(data.total),
+    currency: "CHF",
+    status: INITIAL_ORDER_STATUS,
+    paymentMethod: "card",
+  };
+
+  if (draft.order_id) return base;
+
+  if (draft.payment_reference) {
+    const intent = await retrievePaymentIntent(draft.payment_reference);
+    if (intent.status === "succeeded") {
+      await completeStripeCheckoutDraftFromStripe({
+        draftId: draft.id,
+        confirmationToken: draft.confirmation_token,
+        paymentReference: intent.id,
+        amountReceived: intent.amount_received,
+        currency: intent.currency,
+      });
+      return base;
+    }
+    if (intent.status === "canceled") {
+      throw new UnavailableError(
+        "payment_unavailable",
+        "Diese Zahlung wurde beendet. Bitte starten Sie den Checkout erneut.",
+      );
+    }
+    if (intent.client_secret) {
+      return { ...base, clientSecret: intent.client_secret };
+    }
+  }
+
+  const clientSecret = await startStripePaymentIntent({
+    db,
+    checkoutDraftId: draft.id,
+    orderNumber: base.orderNumber,
+    confirmationToken: draft.confirmation_token,
+    total: base.total,
+    customerEmail: String(data.customer_email ?? ""),
+  });
+  return { ...base, clientSecret };
+}
+
 async function startStripePaymentIntent(input: {
   db: Db;
-  orderId: string;
+  checkoutDraftId?: string;
+  orderId?: string;
   orderNumber: string;
   confirmationToken: string;
   total: number;
@@ -380,10 +478,18 @@ async function startStripePaymentIntent(input: {
       "Online-Zahlung ist ab CHF 0.50 möglich. Bitte Warenkorb prüfen.",
     );
   }
+  if (!input.checkoutDraftId && !input.orderId) {
+    throw new UnavailableError(
+      "payment_unavailable",
+      "Die Zahlung konnte nicht vorbereitet werden.",
+    );
+  }
 
   try {
     const intent = await createOrderPaymentIntent({
-      orderId: input.orderId,
+      ...(input.checkoutDraftId
+        ? { checkoutDraftId: input.checkoutDraftId }
+        : { orderId: input.orderId }),
       orderNumber: input.orderNumber,
       confirmationToken: input.confirmationToken,
       totalChf,
@@ -397,7 +503,25 @@ async function startStripePaymentIntent(input: {
       );
     }
 
-    await orderRepository.setPaymentReference(input.db, input.orderId, intent.id);
+    const referenceResult = input.checkoutDraftId
+      ? await orderRepository.setCheckoutDraftPaymentReference(
+          input.db,
+          input.checkoutDraftId,
+          intent.id,
+        )
+      : input.orderId
+        ? await orderRepository.setPaymentReference(
+          input.db,
+          input.orderId,
+          intent.id,
+        )
+        : { error: new Error("Missing order or checkout draft id.") };
+    if (referenceResult.error) {
+      throw new UnavailableError(
+        "payment_unavailable",
+        "Die Zahlung konnte nicht vorbereitet werden.",
+      );
+    }
     return intent.client_secret;
   } catch (error) {
     if (error instanceof UnavailableError) throw error;
@@ -422,6 +546,7 @@ export async function getPaymentClientSecretForToken(
   total: number;
   currency: "CHF";
   customerEmail: string;
+  locale: "de" | "en";
 } | null> {
   if (!isStripeConfigured() || !isUuid(token)) return null;
 
@@ -431,62 +556,144 @@ export async function getPaymentClientSecretForToken(
 
   const db = trustedClient();
   const orderResult = await orderRepository.findByConfirmationToken(db, token);
+  if (orderResult.error) {
+    throw new UnavailableError(
+      "payment_unavailable",
+      "Der Zahlungsstatus konnte nicht geladen werden.",
+    );
+  }
   const order = orderResult.data;
-  if (!order) return null;
-  if (String(order.payment_method ?? "") !== "card") return null;
-  if (String(order.payment_status ?? "") === "paid") return null;
+  if (order) {
+    if (
+      String(order.payment_method ?? "") !== "card" ||
+      String(order.payment_status ?? "") === "paid"
+    ) {
+      return null;
+    }
 
-  const full = await orderRepository.findOrderById(db, order.id);
-  const row = full.data;
-  if (!row?.customer_email) return null;
+    const full = await orderRepository.findOrderById(db, order.id);
+    const row = full.data;
+    if (!row?.customer_email) return null;
 
-  const existingRef = row.payment_reference;
-  if (existingRef && /^pi_/.test(existingRef)) {
-    try {
-      const existing = await retrievePaymentIntent(existingRef);
-      if (
-        existing.client_secret &&
-        (existing.status === "requires_payment_method" ||
-          existing.status === "requires_confirmation" ||
-          existing.status === "requires_action")
-      ) {
-        return {
-          clientSecret: existing.client_secret,
-          publishableKey,
-          orderNumber: row.order_number,
-          total: money(row.total),
-          currency: "CHF",
-          customerEmail: row.customer_email,
-        };
+    const existingRef = row.payment_reference;
+    if (existingRef && /^pi_/.test(existingRef)) {
+      try {
+        const existing = await retrievePaymentIntent(existingRef);
+        if (
+          existing.client_secret &&
+          (existing.status === "requires_payment_method" ||
+            existing.status === "requires_confirmation" ||
+            existing.status === "requires_action")
+        ) {
+          return {
+            clientSecret: existing.client_secret,
+            publishableKey,
+            orderNumber: row.order_number,
+            total: money(row.total),
+            currency: "CHF",
+            customerEmail: row.customer_email,
+            locale: row.locale === "en" ? "en" : "de",
+          };
+        }
+        if (existing.status === "succeeded") {
+          await markOrderPaidFromStripe({
+            orderId: row.id,
+            paymentReference: existing.id,
+          });
+          return null;
+        }
+      } catch (error) {
+        console.error("[stripe] retrieve PI failed", error);
       }
+    }
+
+    const clientSecret = await startStripePaymentIntent({
+      db,
+      orderId: row.id,
+      orderNumber: row.order_number,
+      confirmationToken: row.confirmation_token,
+      total: money(row.total),
+      customerEmail: row.customer_email,
+    });
+
+    return {
+      clientSecret,
+      publishableKey,
+      orderNumber: row.order_number,
+      total: money(row.total),
+      currency: "CHF",
+      customerEmail: row.customer_email,
+      locale: row.locale === "en" ? "en" : "de",
+    };
+  }
+
+  const draftResult = await orderRepository.findCheckoutDraftByToken(db, token);
+  if (draftResult.error) {
+    throw new UnavailableError(
+      "payment_unavailable",
+      "Der Zahlungsstatus konnte nicht geladen werden.",
+    );
+  }
+  const draft = draftResult.data;
+  if (!draft || draft.order_id) return null;
+
+  const data = checkoutDraftOrderData(draft);
+  const email = String(data.customer_email ?? "");
+  const total = money(data.total);
+  const orderNumber = String(data.order_number ?? "");
+  const locale = data.locale === "en" ? "en" : "de";
+
+  if (draft.payment_reference) {
+    try {
+      const existing = await retrievePaymentIntent(draft.payment_reference);
       if (existing.status === "succeeded") {
-        await markOrderPaidFromStripe({
-          orderId: row.id,
+        await completeStripeCheckoutDraftFromStripe({
+          draftId: draft.id,
+          confirmationToken: draft.confirmation_token,
           paymentReference: existing.id,
+          amountReceived: existing.amount_received,
+          currency: existing.currency,
         });
         return null;
       }
+      if (existing.status === "canceled") return null;
+      if (existing.client_secret) {
+        return {
+          clientSecret: existing.client_secret,
+          publishableKey,
+          orderNumber,
+          total,
+          currency: "CHF",
+          customerEmail: email,
+          locale,
+        };
+      }
     } catch (error) {
-      console.error("[stripe] retrieve PI failed", error);
+      console.error("[stripe] retrieve checkout draft payment failed", error);
+      throw new UnavailableError(
+        "payment_unavailable",
+        "Der Zahlungsstatus konnte nicht geladen werden.",
+      );
     }
   }
 
   const clientSecret = await startStripePaymentIntent({
     db,
-    orderId: row.id,
-    orderNumber: row.order_number,
-    confirmationToken: row.confirmation_token,
-    total: money(row.total),
-    customerEmail: row.customer_email,
+    checkoutDraftId: draft.id,
+    orderNumber,
+    confirmationToken: draft.confirmation_token,
+    total,
+    customerEmail: email,
   });
 
   return {
     clientSecret,
     publishableKey,
-    orderNumber: row.order_number,
-    total: money(row.total),
+    orderNumber,
+    total,
     currency: "CHF",
-    customerEmail: row.customer_email,
+    customerEmail: email,
+    locale,
   };
 }
 
@@ -616,6 +823,85 @@ export async function markOrderPaidFromStripe(input: {
   return true;
 }
 
+/** Creates the real order only after Stripe confirms the draft is fully paid. */
+export async function completeStripeCheckoutDraftFromStripe(input: {
+  draftId: string;
+  confirmationToken: string;
+  paymentReference: string;
+  amountReceived: number;
+  currency: string;
+}): Promise<boolean> {
+  if (!isUuid(input.draftId) || !isUuid(input.confirmationToken)) {
+    throw new UnavailableError(
+      "checkout_draft_invalid",
+      "Die Zahlung konnte keiner Bestellung zugeordnet werden.",
+    );
+  }
+
+  const db = trustedClient();
+  const completion = await orderRepository.completeStripeCheckoutDraft(db, input);
+  if (completion.error || !completion.order) {
+    console.error("[stripe] checkout draft completion failed", completion.error);
+    throw new UnavailableError(
+      "checkout_completion_failed",
+      "Die bezahlte Bestellung konnte nicht abgeschlossen werden.",
+    );
+  }
+  if (!completion.created) return true;
+
+  const [orderResult, itemsResult] = await Promise.all([
+    orderRepository.findOrderById(db, completion.order.id),
+    orderRepository.findOrderItems(db, completion.order.id),
+  ]);
+  if (orderResult.error || !orderResult.data || itemsResult.error) {
+    console.error("[stripe] completed order could not be loaded", {
+      orderError: orderResult.error,
+      itemsError: itemsResult.error,
+      orderId: completion.order.id,
+    });
+    throw new UnavailableError(
+      "checkout_completion_failed",
+      "Die bezahlte Bestellung konnte nicht geladen werden.",
+    );
+  }
+
+  const order = orderResult.data;
+  const fulfillment = order.fulfillment_type === "pickup" ? "pickup" : "delivery";
+  const addressLine = [
+    order.address_line1,
+    order.address_line2 && !/^https?:\/\//i.test(order.address_line2)
+      ? order.address_line2
+      : null,
+    [order.postal_code, order.city].filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  await notifyOrderCreated({
+    orderId: order.id,
+    orderNumber: order.order_number,
+    confirmationToken: order.confirmation_token,
+    status: order.status,
+    fulfillment,
+    total: money(order.total),
+    locale: order.locale === "en" ? "en" : "de",
+    customerName: order.customer_name || "Gast",
+    customerEmail: order.customer_email || "",
+    customerPhone: order.customer_phone || "",
+    notes: order.customer_notes,
+    addressLine: addressLine || null,
+    items: itemsResult.data.map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: money(item.unit_price),
+    })),
+    db,
+    paidOnline: true,
+  });
+
+  return true;
+}
+
 /**
  * Backup when the webhook is slow: confirm PaymentIntent or legacy Checkout
  * Session and fulfill the order.
@@ -632,6 +918,17 @@ export async function syncStripeCheckoutSession(input: {
       const intent = await retrievePaymentIntent(input.paymentIntentId);
       if (intent.status !== "succeeded") return;
       const metaToken = intent.metadata?.confirmation_token;
+      const draftId = intent.metadata?.checkout_draft_id;
+      if (draftId && metaToken === input.confirmationToken) {
+        await completeStripeCheckoutDraftFromStripe({
+          draftId,
+          confirmationToken: metaToken,
+          paymentReference: intent.id,
+          amountReceived: intent.amount_received,
+          currency: intent.currency,
+        });
+        return;
+      }
       const orderId = intent.metadata?.order_id;
       if (!orderId || metaToken !== input.confirmationToken) return;
       await markOrderPaidFromStripe({

@@ -20,7 +20,7 @@ export type PersistedOrder = {
 };
 
 export const ORDER_LIST_COLUMNS =
-  "id, order_number, customer_name, fulfillment_type, total, status, created_at";
+  "id, order_number, customer_name, fulfillment_type, total, status, payment_method, payment_status, created_at";
 
 export function findByIdempotencyKey(db: Db, key: string) {
   return db
@@ -30,6 +30,93 @@ export function findByIdempotencyKey(db: Db, key: string) {
     )
     .eq("idempotency_key", key)
     .maybeSingle();
+}
+
+export function findCheckoutDraftByIdempotencyKey(db: Db, key: string) {
+  return db
+    .from("checkout_payment_drafts")
+    .select("*")
+    .eq("idempotency_key", key)
+    .maybeSingle();
+}
+
+export function findCheckoutDraftByToken(db: Db, token: string) {
+  return db
+    .from("checkout_payment_drafts")
+    .select("*")
+    .eq("confirmation_token", token)
+    .maybeSingle();
+}
+
+export function insertCheckoutDraft(
+  db: Db,
+  draft: Database["public"]["Tables"]["checkout_payment_drafts"]["Insert"],
+) {
+  return db
+    .from("checkout_payment_drafts")
+    .insert(draft)
+    .select("*")
+    .single();
+}
+
+export function setCheckoutDraftPaymentReference(
+  db: Db,
+  draftId: string,
+  reference: string,
+) {
+  return db
+    .from("checkout_payment_drafts")
+    .update({ payment_reference: reference })
+    .eq("id", draftId);
+}
+
+export async function completeStripeCheckoutDraft(
+  db: Db,
+  input: {
+    draftId: string;
+    confirmationToken: string;
+    paymentReference: string;
+    amountReceived: number;
+    currency: string;
+  },
+): Promise<{ order: PersistedOrder | null; created: boolean; error: string | null }> {
+  const { data, error } = await db.rpc("complete_stripe_checkout_draft", {
+    p_draft_id: input.draftId,
+    p_confirmation_token: input.confirmationToken,
+    p_payment_reference: input.paymentReference,
+    p_amount_received: input.amountReceived,
+    p_currency: input.currency,
+  });
+
+  if (error) return { order: null, created: false, error: error.message };
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { order: null, created: false, error: "Invalid checkout completion response." };
+  }
+
+  const result = data as Record<string, unknown>;
+  if (result.error) {
+    return {
+      order: null,
+      created: false,
+      error: String(result.error),
+    };
+  }
+  if (!result.order || typeof result.order !== "object") {
+    return { order: null, created: false, error: "Checkout draft was not found." };
+  }
+
+  const row = result.order as Record<string, unknown>;
+  return {
+    order: {
+      id: String(row.id ?? ""),
+      order_number: String(row.order_number ?? ""),
+      confirmation_token: String(row.confirmation_token ?? ""),
+      total: Number(row.total ?? 0),
+      status: String(row.status ?? "pending"),
+    },
+    created: result.created === true,
+    error: null,
+  };
 }
 
 export function findByPaymentReference(db: Db, reference: string) {
@@ -122,13 +209,18 @@ export function listOrders(db: Db, { status, search, from, to }: OrderListQuery)
     .order("created_at", { ascending: false })
     .range(from, to);
 
+  const paymentFilter = "payment_method.neq.card,payment_status.eq.paid";
   if (status) query = query.eq("status", status);
   if (search) {
     // PostgREST `or` filters are comma separated, so those characters are stripped.
     const safe = search.replace(/[%_,()]/g, "");
+    const searchFilter =
+      `or(customer_name.ilike.%${safe}%,order_number.ilike.%${safe}%)`;
     query = query.or(
-      `customer_name.ilike.%${safe}%,order_number.ilike.%${safe}%`,
+      `and(payment_method.neq.card,${searchFilter}),and(payment_status.eq.paid,${searchFilter})`,
     );
+  } else {
+    query = query.or(paymentFilter);
   }
 
   return query;
@@ -142,6 +234,7 @@ export function listRecentOrders(
   let query = db
     .from("orders")
     .select("id, order_number, customer_name, total, status, created_at")
+    .or("payment_method.neq.card,payment_status.eq.paid")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -157,6 +250,7 @@ export function findLatestOrderId(db: Db) {
   return db
     .from("orders")
     .select("id, created_at, order_number")
+    .or("payment_method.neq.card,payment_status.eq.paid")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -174,6 +268,7 @@ export function listOrderKpisSince(db: Db, since: string, until?: string) {
   const query = db
     .from("orders")
     .select("status, total, payment_method, payment_status")
+    .or("payment_method.neq.card,payment_status.eq.paid")
     .gte("created_at", since);
 
   return until ? query.lt("created_at", until) : query;
@@ -209,6 +304,7 @@ export function findOrdersDueForCompletion(
     .from("orders")
     .select("id, status")
     .eq("fulfillment_type", fulfillmentType)
+    .or("payment_method.neq.card,payment_status.eq.paid")
     .lte("created_at", createdBefore)
     .in("status", openStatuses)
     .limit(200);

@@ -363,15 +363,33 @@ export function AdminOrderPaymentCard({
         <div className="flex justify-between">
           <dt className="text-muted">{t("admin.detail.method")}</dt>
           <dd className="font-semibold">
-            {method && method !== "cash" ? method : t("admin.detail.cash")}
+            {method === "card"
+              ? "Stripe"
+              : method && method !== "cash"
+                ? method
+                : t("admin.detail.cash")}
           </dd>
         </div>
-        <div className="flex justify-between">
-          <dt className="text-muted">{t("admin.detail.paymentStatus")}</dt>
-          <dd className="font-semibold">
-            {status ?? t("admin.detail.paymentOpen")}
-          </dd>
-        </div>
+        {method !== "cash" ? (
+          <div className="flex justify-between">
+            <dt className="text-muted">{t("admin.detail.paymentStatus")}</dt>
+            <dd
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                status === "paid"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : status === "refunded"
+                    ? "bg-slate-100 text-slate-700"
+                    : "bg-amber-100 text-amber-900"
+              }`}
+            >
+              {status === "paid"
+                ? t("admin.payment.paid")
+                : status === "refunded"
+                  ? t("admin.payment.refunded")
+                  : t("admin.payment.unpaid")}
+            </dd>
+          </div>
+        ) : null}
       </dl>
     </Card>
   );

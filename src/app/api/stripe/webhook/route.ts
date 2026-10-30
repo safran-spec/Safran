@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { markOrderPaidFromStripe } from "@/backend/services/order.service";
+import {
+  completeStripeCheckoutDraftFromStripe,
+  markOrderPaidFromStripe,
+} from "@/backend/services/order.service";
 import {
   getStripe,
   getStripeWebhookSecret,
@@ -51,8 +54,19 @@ export async function POST(request: Request) {
   try {
     if (event.type === "payment_intent.succeeded") {
       const intent = event.data.object as Stripe.PaymentIntent;
+      const draftId = intent.metadata?.checkout_draft_id;
+      const confirmationToken = intent.metadata?.confirmation_token;
+      if (draftId && confirmationToken) {
+        await completeStripeCheckoutDraftFromStripe({
+          draftId,
+          confirmationToken,
+          paymentReference: intent.id,
+          amountReceived: intent.amount_received,
+          currency: intent.currency,
+        });
+      }
       const orderId = intent.metadata?.order_id;
-      if (orderId) {
+      if (!draftId && orderId) {
         await markOrderPaidFromStripe({
           orderId,
           paymentReference: intent.id,

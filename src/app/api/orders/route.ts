@@ -32,8 +32,7 @@ export async function POST(request: Request) {
       body,
       request.headers.get("Idempotency-Key"),
     );
-    const origin = new URL(request.url).origin;
-    const order = await createCashOrder(orderRequest, { origin });
+    const order = await createCashOrder(orderRequest);
 
     return NextResponse.json(order, {
       status: 201,

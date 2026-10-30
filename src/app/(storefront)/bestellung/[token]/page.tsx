@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   getOrderByToken,
   syncStripeCheckoutSession,
@@ -34,6 +34,7 @@ export default async function OrderConfirmationPage({
   const {
     session_id: sessionId,
     payment_intent: paymentIntentId,
+    redirect_status: redirectStatus,
   } = await searchParams;
 
   // Return-URL backup when the webhook has not fired yet (common in local test).
@@ -46,7 +47,12 @@ export default async function OrderConfirmationPage({
   }
 
   const order = await getOrderByToken(token);
-  if (!order) notFound();
+  if (!order) {
+    if (redirectStatus === "failed" || paymentIntentId || sessionId) {
+      redirect(`/zahlung/${token}`);
+    }
+    notFound();
+  }
 
   const items = ((order.order_items ?? []) as OrderItem[]).map((item) => ({
     name: item.name,

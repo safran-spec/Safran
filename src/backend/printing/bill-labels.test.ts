@@ -7,15 +7,19 @@ import {
 } from "@/backend/printing/bill-labels";
 
 describe("kitchen bill labels", () => {
-  it("labels cash as COD regardless of payment_status", () => {
-    assert.equal(kitchenPaymentLabel("cash", "pending"), "COD");
-    assert.equal(kitchenPaymentLabel("cash", "paid"), "COD");
-    assert.equal(kitchenPaymentLabel("CASH", null), "COD");
+  it("labels cash orders as cash regardless of payment_status", () => {
+    assert.equal(kitchenPaymentLabel("cash", "pending"), "CASH");
+    assert.equal(kitchenPaymentLabel("cash", "paid"), "CASH");
+    assert.equal(kitchenPaymentLabel("CASH", null), "CASH");
   });
 
-  it("labels paid Stripe as PAID and unpaid online clearly", () => {
-    assert.equal(kitchenPaymentLabel("card", "paid"), "PAID (Stripe)");
-    assert.equal(kitchenPaymentLabel("card", "pending"), "ONLINE — UNPAID");
+  it("labels Stripe orders paid or unpaid explicitly", () => {
+    assert.equal(kitchenPaymentLabel("card", "paid"), "STRIPE PAID");
+    assert.equal(kitchenPaymentLabel("card", "pending"), "STRIPE UNPAID");
+  });
+
+  it("labels refunded orders distinctly", () => {
+    assert.equal(kitchenPaymentLabel("card", "refunded"), "STRIPE REFUNDED");
   });
 
   it("labels fulfillment for kitchen sorting", () => {

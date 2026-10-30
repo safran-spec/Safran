@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
-import {
-  getOrderByToken,
-  getPaymentClientSecretForToken,
-} from "@/backend/services/order.service";
+import { redirect } from "next/navigation";
+import { getPaymentClientSecretForToken } from "@/backend/services/order.service";
 import { StripePaymentForm } from "@/components/stripe-payment-form";
 
 export const metadata: Metadata = {
@@ -30,24 +27,11 @@ export default async function PaymentPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const order = await getOrderByToken(token);
-  if (!order) notFound();
-
-  if (String(order.payment_method ?? "") !== "card") {
-    redirect(`/bestellung/${token}`);
-  }
-
-  if (String(order.payment_status ?? "") === "paid") {
-    redirect(`/bestellung/${token}`);
-  }
-
   const payment = await getPaymentClientSecretForToken(token);
   if (!payment) {
-    // Intent may have just succeeded between checks, or Stripe is unavailable.
     redirect(`/bestellung/${token}`);
   }
 
-  const locale = order.locale === "en" ? "en" : "de";
   const origin = await siteOrigin();
   const returnUrl = `${origin}/bestellung/${token}`;
 
@@ -60,7 +44,7 @@ export default async function PaymentPage({
           orderNumber={payment.orderNumber}
           total={payment.total}
           currency={payment.currency}
-          locale={locale}
+          locale={payment.locale}
           returnUrl={returnUrl}
         />
       </div>

@@ -25,6 +25,8 @@ export type OrdersListItem = {
   fulfillment_type: string | null;
   created_at: string;
   status: string;
+  payment_method: string;
+  payment_status: string;
   total: number | string | null;
 };
 
@@ -80,6 +82,7 @@ export function AdminOrdersView({
                   <th className="pb-3">{t("admin.orders.colType")}</th>
                   <th className="pb-3">{t("admin.orders.colReceived")}</th>
                   <th className="pb-3">{t("admin.orders.colStatus")}</th>
+                  <th className="pb-3">{t("admin.orders.colPayment")}</th>
                   <th className="pb-3">{t("admin.orders.colPrint")}</th>
                   <th className="pb-3 text-right">{t("admin.orders.colTotal")}</th>
                   <th className="pb-3 text-right">{t("admin.orders.colAction")}</th>
@@ -112,6 +115,36 @@ export function AdminOrdersView({
                       </td>
                       <td className="py-4">
                         <OrderStatusBadge status={order.status} />
+                      </td>
+                      <td className="py-4">
+                        <div className="space-y-1">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              order.payment_method === "cash"
+                                ? "bg-sky-100 text-sky-800"
+                                : order.payment_status === "paid"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : order.payment_status === "refunded"
+                                  ? "bg-slate-100 text-slate-700"
+                                  : "bg-amber-100 text-amber-900"
+                            }`}
+                          >
+                            {order.payment_method === "cash"
+                              ? t("admin.orders.paymentCash")
+                              : order.payment_status === "paid"
+                                ? t("admin.payment.paid")
+                                : order.payment_status === "refunded"
+                                  ? t("admin.payment.refunded")
+                                  : t("admin.payment.unpaid")}
+                          </span>
+                          {order.payment_method !== "cash" ? (
+                            <p className="text-xs text-muted">
+                              {order.payment_method === "card"
+                                ? "Stripe"
+                                : order.payment_method}
+                            </p>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="py-4">
                         {printJob ? (

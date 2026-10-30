@@ -171,6 +171,17 @@ export type OrderItem = {
   created_at: string;
 };
 
+export type CheckoutPaymentDraft = {
+  id: string;
+  idempotency_key: string;
+  confirmation_token: string;
+  order_data: Json;
+  items: Json;
+  payment_reference: string | null;
+  order_id: string | null;
+  created_at: string;
+};
+
 export type OrderStatusEvent = {
   id: number;
   order_id: string;
@@ -361,6 +372,19 @@ export interface Database {
           updated_at?: string;
         }
       >;
+      checkout_payment_drafts: TableDefinition<
+        CheckoutPaymentDraft,
+        {
+          id?: string;
+          idempotency_key: string;
+          confirmation_token: string;
+          order_data: Json;
+          items: Json;
+          payment_reference?: string | null;
+          order_id?: string | null;
+          created_at?: string;
+        }
+      >;
       order_items: TableDefinition<
         OrderItem,
         {
@@ -479,6 +503,16 @@ export interface Database {
         Args: {
           p_order: Json;
           p_items: Json;
+        };
+        Returns: Json;
+      };
+      complete_stripe_checkout_draft: {
+        Args: {
+          p_draft_id: string;
+          p_confirmation_token: string;
+          p_payment_reference: string;
+          p_amount_received: number;
+          p_currency: string;
         };
         Returns: Json;
       };

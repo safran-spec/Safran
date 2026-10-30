@@ -22,7 +22,8 @@ export function getStripePublishableKey(): string {
  * Menu SKUs stay in our DB — Stripe only charges the order total.
  */
 export async function createOrderPaymentIntent(input: {
-  orderId: string;
+  checkoutDraftId?: string;
+  orderId?: string;
   orderNumber: string;
   confirmationToken: string;
   totalChf: number;
@@ -30,13 +31,17 @@ export async function createOrderPaymentIntent(input: {
 }): Promise<Stripe.PaymentIntent> {
   const stripe = getStripe();
   const amount = chfToStripeAmount(input.totalChf);
+  const idempotencyKey = input.checkoutDraftId ?? input.orderId;
+  if (!idempotencyKey) {
+    throw new Error("A checkout draft or legacy order id is required.");
+  }
 
   // Stripe CHF minimum is 0.50 (50 Rappen). Reject early with a clear log.
   if (!Number.isFinite(amount) || amount < 50) {
     console.error("[stripe] amount below CHF 0.50 minimum", {
       totalChf: input.totalChf,
       amount,
-      orderId: input.orderId,
+      checkoutDraftId: input.checkoutDraftId,
       orderNumber: input.orderNumber,
     });
     throw new Error(
@@ -44,18 +49,23 @@ export async function createOrderPaymentIntent(input: {
     );
   }
 
-  return stripe.paymentIntents.create({
-    amount,
-    currency: "chf",
-    automatic_payment_methods: { enabled: true },
-    receipt_email: input.customerEmail,
-    description: `Bestellung ${input.orderNumber} — Safran`,
-    metadata: {
-      order_id: input.orderId,
-      order_number: input.orderNumber,
-      confirmation_token: input.confirmationToken,
+  return stripe.paymentIntents.create(
+    {
+      amount,
+      currency: "chf",
+      automatic_payment_methods: { enabled: true },
+      receipt_email: input.customerEmail,
+      description: `Bestellung ${input.orderNumber} — Safran`,
+      metadata: {
+        ...(input.checkoutDraftId
+          ? { checkout_draft_id: input.checkoutDraftId }
+          : { order_id: input.orderId ?? "" }),
+        order_number: input.orderNumber,
+        confirmation_token: input.confirmationToken,
+      },
     },
-  });
+    { idempotencyKey },
+  );
 }
 
 export async function retrievePaymentIntent(paymentIntentId: string) {
