@@ -238,7 +238,7 @@ export const messages = {
       "Ihre Bestellung ist bestätigt. Sie erhalten Ihre Bestellung in ca. 60 Minuten.",
     "order.status.pickupTitle": "Bestellung bestätigt",
     "order.status.pickupMessage":
-      "Ihre Bestellung ist in ca. 30 Minuten bereit. Sie können sie nach 30 Minuten abholen.",
+      "Ihre Bestellung ist in ca. 60 Minuten bereit. Sie können sie nach 60 Minuten abholen.",
     "order.status.completedTitle": "Bestellung abgeschlossen",
     "order.status.completedMessage":
       "Ihre Bestellung ist angekommen. Geniessen Sie Ihre Mahlzeit.",
@@ -944,7 +944,7 @@ export const messages = {
       "Your order is confirmed. You will receive your order in about 60 minutes.",
     "order.status.pickupTitle": "Order confirmed",
     "order.status.pickupMessage":
-      "Your order will be ready in about 30 minutes. You can pick it up after 30 minutes.",
+      "Your order will be ready in about 60 minutes. You can pick it up after 60 minutes.",
     "order.status.completedTitle": "Order completed",
     "order.status.completedMessage":
       "Your order has arrived. Enjoy your meal.",

@@ -42,7 +42,7 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
  */
 export const AUTO_COMPLETE_MINUTES = {
   delivery: 60,
-  pickup: 30,
+  pickup: 60,
 } as const;
 
 /** Statuses an order can sit in before it auto-completes. */

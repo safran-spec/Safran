@@ -1,7 +1,10 @@
 import "server-only";
 
 import { Resend } from "resend";
-import type { OrderStatus } from "@/backend/domain/order-status";
+import {
+  AUTO_COMPLETE_MINUTES,
+  type OrderStatus,
+} from "@/backend/domain/order-status";
 
 export type EmailLocale = "de" | "en";
 
@@ -181,6 +184,11 @@ export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
   const amount = money(ctx.total, "de");
   const fulfillment =
     ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung";
+  const waitMinutes = AUTO_COMPLETE_MINUTES[ctx.fulfillmentType];
+  const waitLine =
+    ctx.fulfillmentType === "delivery"
+      ? `Erwartete Lieferzeit: ca. ${waitMinutes} Minuten`
+      : `Erwartete Abholzeit: ca. ${waitMinutes} Minuten`;
   const adminUrl = ctx.orderId
     ? `${siteUrl()}/admin/orders/${ctx.orderId}`
     : `${siteUrl()}/admin/orders`;
@@ -193,6 +201,7 @@ export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
   const text = [
     `Neue Bestellung #${ctx.orderNumber}`,
     `Art: ${fulfillment}`,
+    waitLine,
     `Total: ${amount}`,
     ``,
     `Kunde: ${ctx.customerName}`,
@@ -217,7 +226,7 @@ export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
     subject,
     `
       <p><strong>Neue Bestellung #${escapeHtml(ctx.orderNumber)}</strong></p>
-      <p>Art: ${escapeHtml(fulfillment)}<br/>Total: <strong>${escapeHtml(amount)}</strong></p>
+      <p>Art: ${escapeHtml(fulfillment)}<br/>${escapeHtml(waitLine)}<br/>Total: <strong>${escapeHtml(amount)}</strong></p>
       <p>
         Kunde: ${escapeHtml(ctx.customerName)}<br/>
         Telefon: ${escapeHtml(ctx.customerPhone)}<br/>
@@ -244,11 +253,27 @@ export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
   });
 }
 
+function fulfillmentWaitCopy(
+  fulfillmentType: "delivery" | "pickup",
+  locale: EmailLocale,
+) {
+  const minutes = AUTO_COMPLETE_MINUTES[fulfillmentType];
+  if (locale === "en") {
+    return fulfillmentType === "delivery"
+      ? `You will receive your order in about ${minutes} minutes.`
+      : `Your order will be ready in about ${minutes} minutes. You can pick it up after ${minutes} minutes.`;
+  }
+  return fulfillmentType === "delivery"
+    ? `Sie erhalten Ihre Bestellung in ca. ${minutes} Minuten.`
+    : `Ihre Bestellung ist in ca. ${minutes} Minuten bereit. Sie können sie nach ${minutes} Minuten abholen.`;
+}
+
 export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
   const locale = emailLocale(ctx.locale);
   const trackUrl = `${siteUrl()}/bestellung/${ctx.confirmationToken}`;
   const amount = money(ctx.total, locale);
   const paid = ctx.paidOnline === true;
+  const waitLine = fulfillmentWaitCopy(ctx.fulfillmentType, locale);
   const copy =
     locale === "en"
       ? {
@@ -261,6 +286,7 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
             ? `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}). Your online payment of ${amount} was received.`
             : `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}).`,
           totalLabel: paid ? `Paid: ${amount}` : `Total: ${amount}`,
+          waitLine,
           followLine: "You can follow the current status here at any time:",
           button: "Track order",
           fallbackLine: "If the button does not work:",
@@ -279,6 +305,7 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
             ? `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}). Ihre Online-Zahlung über ${amount} wurde erhalten.`
             : `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}).`,
           totalLabel: paid ? `Bezahlt: ${amount}` : `Total: ${amount}`,
+          waitLine,
           followLine: "Den aktuellen Status können Sie jederzeit hier verfolgen:",
           button: "Bestellung verfolgen",
           fallbackLine: "Falls der Button nicht funktioniert:",
@@ -291,6 +318,7 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
     copy.greeting,
     ``,
     copy.thanks,
+    copy.waitLine,
     copy.totalLabel,
     ``,
     copy.followLine,
@@ -307,6 +335,7 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
     `
       <p>${escapeHtml(copy.greeting)}</p>
       <p>${escapeHtml(copy.thanks)}</p>
+      <p><strong>${escapeHtml(copy.waitLine)}</strong></p>
       <p style="font-size:18px;margin:18px 0;"><strong>${escapeHtml(copy.totalLabel)}</strong></p>
       <p>${escapeHtml(copy.followLine)}</p>
       <p style="margin:22px 0;">
