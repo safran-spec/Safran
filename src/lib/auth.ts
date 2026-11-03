@@ -37,6 +37,6 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 }
 
 export async function isCurrentUserAdmin(): Promise<boolean> {
-  const { actor } = await getSessionContext();
-  return isBackOfficeRole(actor?.role ?? null);
+  const { actor, mfaVerified } = await getSessionContext();
+  return isBackOfficeRole(actor?.role ?? null) && mfaVerified;
 }

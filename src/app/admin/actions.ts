@@ -9,7 +9,7 @@ import {
   refreshStoreStatus,
 } from "@/backend/cache/revalidate";
 import { AuthorizationError, ConflictError, isAppError } from "@/backend/errors";
-import { signInToBackOffice, signOut } from "@/backend/services/auth.service";
+import { signInToBackOffice, signOut, verifyMfaCode } from "@/backend/services/auth.service";
 import * as deliveryZoneService from "@/backend/services/delivery-zone.service";
 import * as menuService from "@/backend/services/menu.service";
 import * as orderService from "@/backend/services/order.service";
@@ -111,6 +111,27 @@ export async function loginAction(formData: FormData) {
       isAppError(error)
         ? `admin.err.${error.code}::${error.message}`
         : "admin.err.login_failed",
+    );
+  }
+
+  redirect(`${LOGIN_PATH}?${new URLSearchParams({ next: safeNext })}`);
+}
+
+export async function verifyMfaAction(formData: FormData) {
+  const safeNext = safeAdminPath(text(formData, "next"), "/admin");
+
+  try {
+    await verifyMfaCode({
+      factorId: text(formData, "factorId"),
+      code: text(formData, "code").replace(/\s/g, ""),
+    });
+  } catch (error) {
+    destination(
+      LOGIN_PATH,
+      "error",
+      isAppError(error)
+        ? `admin.err.${error.code}::${error.message}`
+        : "admin.err.generic",
     );
   }
 

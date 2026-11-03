@@ -10,7 +10,7 @@ export default async function ProtectedAdminLayout({
 }) {
   const context = await getAdminContext();
   if (context.state === "setup") return <SetupState />;
-  if (context.state === "anonymous") redirect("/admin/login");
+  if (context.state === "anonymous" || context.state === "mfa") redirect("/admin/login");
   if (context.state === "forbidden") redirect("/admin/login?error=Admin-Berechtigung%20erforderlich");
 
   return (

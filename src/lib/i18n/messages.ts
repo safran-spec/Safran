@@ -62,6 +62,19 @@ export const messages = {
     "admin.login.submit": "Sicher anmelden",
     "admin.login.submitting": "Anmeldung läuft…",
     "admin.login.footnote": "Zugriff nur für autorisierte Mitarbeitende.",
+    "admin.mfa.title": "Zwei-Faktor-Bestätigung",
+    "admin.mfa.descSetup":
+      "Scannen Sie den QR-Code mit Google Authenticator und geben Sie den 6-stelligen Code ein.",
+    "admin.mfa.descVerify":
+      "Geben Sie den 6-stelligen Code aus Ihrer Authenticator-App ein.",
+    "admin.mfa.qrAlt": "QR-Code für Google Authenticator",
+    "admin.mfa.manual": "Oder Schlüssel manuell eingeben:",
+    "admin.mfa.code": "Code",
+    "admin.mfa.submit": "Bestätigen",
+    "admin.mfa.verifying": "Wird geprüft…",
+    "admin.mfa.cancel": "Abbrechen und abmelden",
+    "admin.err.mfa_invalid_code": "Ungültiger Code. Bitte erneut versuchen.",
+    "admin.err.mfa_enroll_failed": "Authenticator konnte nicht eingerichtet werden.",
     "admin.setup.eyebrow": "Einrichtung erforderlich",
     "admin.setup.title": "Admin-Verbindung ist noch nicht konfiguriert",
     "admin.setup.desc":
@@ -771,6 +784,19 @@ export const messages = {
     "admin.login.submit": "Sign in securely",
     "admin.login.submitting": "Signing in…",
     "admin.login.footnote": "Access for authorised staff only.",
+    "admin.mfa.title": "Two-factor verification",
+    "admin.mfa.descSetup":
+      "Scan the QR code with Google Authenticator, then enter the 6-digit code.",
+    "admin.mfa.descVerify":
+      "Enter the 6-digit code from your authenticator app.",
+    "admin.mfa.qrAlt": "QR code for Google Authenticator",
+    "admin.mfa.manual": "Or enter the key manually:",
+    "admin.mfa.code": "Code",
+    "admin.mfa.submit": "Verify",
+    "admin.mfa.verifying": "Verifying…",
+    "admin.mfa.cancel": "Cancel and sign out",
+    "admin.err.mfa_invalid_code": "Invalid code. Please try again.",
+    "admin.err.mfa_enroll_failed": "Could not set up the authenticator.",
     "admin.setup.eyebrow": "Setup required",
     "admin.setup.title": "The admin connection is not configured yet",
     "admin.setup.desc":

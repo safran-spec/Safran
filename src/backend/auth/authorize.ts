@@ -7,6 +7,16 @@ import type { Actor } from "@/backend/types";
 
 export type AuthorizedContext = SessionContext & { actor: Actor };
 
+/** Back-office roles must have completed the authenticator (TOTP) step. */
+function requireMfa(context: SessionContext) {
+  if (context.actor && isBackOfficeRole(context.actor.role) && !context.mfaVerified) {
+    throw new AuthorizationError(
+      "unauthenticated",
+      "Zwei-Faktor-Bestätigung erforderlich.",
+    );
+  }
+}
+
 /**
  * Server-side gate for every privileged operation. Throws instead of returning
  * a boolean so a forgotten check cannot silently pass.
@@ -31,6 +41,7 @@ export async function requireCapability(
       "Für diese Aktion fehlt die Berechtigung.",
     );
   }
+  requireMfa(context);
 
   return { ...context, actor: context.actor };
 }
@@ -48,6 +59,7 @@ export async function requireBackOffice(): Promise<AuthorizedContext> {
       "Für dieses Konto fehlt die Admin-Berechtigung.",
     );
   }
+  requireMfa(context);
 
   return { ...context, actor: context.actor };
 }

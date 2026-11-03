@@ -13,6 +13,8 @@ export type SessionContext = {
   supabase: SessionClient;
   /** Null when the visitor is anonymous. Always read from the auth cookie. */
   actor: Actor | null;
+  /** True once the session has passed a second factor (Supabase aal2). */
+  mfaVerified: boolean;
 };
 
 export function hasSupabaseEnvironment(): boolean {
@@ -34,7 +36,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return { supabase, actor: null };
+  if (!user) return { supabase, actor: null, mfaVerified: false };
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -44,9 +46,12 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
 
   const role: AppRole = normalizeRole(profile?.role) ?? "customer";
 
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
   return {
     supabase,
     actor: { userId: user.id, email: user.email, role },
+    mfaVerified: aal?.currentLevel === "aal2",
   };
 });
 

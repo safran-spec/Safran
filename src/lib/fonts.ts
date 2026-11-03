@@ -10,7 +10,6 @@ export const amiri = Amiri({
 /** Order-status + admin handwritten accents — load only on those surfaces. */
 export const caveat = Caveat({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
   variable: "--font-caveat",
   display: "swap",
 });
