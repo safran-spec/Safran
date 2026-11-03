@@ -9,7 +9,8 @@ import {
   refreshStoreStatus,
 } from "@/backend/cache/revalidate";
 import { AuthorizationError, ConflictError, isAppError } from "@/backend/errors";
-import { signInToBackOffice, signOut } from "@/backend/services/auth.service";
+import { signInToBackOffice, signOut, verifyMfaCode, confirmMfaCode } from "@/backend/services/auth.service";
+import { requireBackOffice } from "@/backend/auth/authorize";
 import * as deliveryZoneService from "@/backend/services/delivery-zone.service";
 import * as menuService from "@/backend/services/menu.service";
 import * as orderService from "@/backend/services/order.service";
@@ -55,6 +56,16 @@ function safeAdminPath(value: string, fallback: string) {
 
 function destination(path: string, kind: "message" | "error", value: string): never {
   redirect(`${path}?${new URLSearchParams({ [kind]: value })}`);
+}
+
+/**
+ * Re-confirms an authenticator code (`mfa_code`) before a sensitive operation.
+ * A wrong code raises a ValidationError, so the admin stays signed in.
+ */
+async function withMfa<T>(formData: FormData, operation: () => Promise<T>): Promise<T> {
+  await requireBackOffice();
+  await confirmMfaCode(text(formData, "mfa_code").replace(/\s/g, ""));
+  return operation();
 }
 
 /**
@@ -114,6 +125,29 @@ export async function loginAction(formData: FormData) {
     );
   }
 
+  redirect(`${LOGIN_PATH}?${new URLSearchParams({ next: safeNext })}`);
+}
+
+export async function verifyMfaAction(
+  _prev: { error?: string },
+  formData: FormData,
+): Promise<{ error?: string }> {
+  const safeNext = safeAdminPath(text(formData, "next"), "/admin");
+
+  try {
+    await verifyMfaCode({
+      factorId: text(formData, "factorId"),
+      code: text(formData, "code").replace(/\s/g, ""),
+    });
+  } catch (error) {
+    // Returned instead of redirecting so the page (and the QR code) isn't regenerated.
+    return {
+      error: isAppError(error)
+        ? `admin.err.${error.code}::${error.message}`
+        : "admin.err.generic",
+    };
+  }
+
   redirect(safeNext);
 }
 
@@ -125,10 +159,17 @@ export async function logoutAction() {
 export async function setStoreOpenAction(formData: FormData) {
   const isOpen = checked(formData, "is_open");
   const returnTo = safeAdminPath(text(formData, "next"), "/admin");
+  const code = text(formData, "code").replace(/\s/g, "");
 
   await handle(
     returnTo,
-    () => settingsService.setStoreOpen(isOpen),
+    async () => {
+      if (!isOpen) {
+        await requireBackOffice();
+        await confirmMfaCode(code);
+      }
+      await settingsService.setStoreOpen(isOpen);
+    },
     isOpen ? "admin.msg.storeOpen" : "admin.msg.storeClosed",
     refreshStoreStatus,
   );
@@ -183,13 +224,15 @@ export async function createCategoryAction(formData: FormData) {
   await handle(
     MENU_PATH,
     () =>
-      menuService.createCategory({
-        id: text(formData, "id"),
-        name: text(formData, "name"),
-        description: text(formData, "description"),
-        sortOrder: numberValue(formData, "sort_order"),
-        isActive: checked(formData, "is_active"),
-      }),
+      withMfa(formData, () =>
+        menuService.createCategory({
+          id: text(formData, "id"),
+          name: text(formData, "name"),
+          description: text(formData, "description"),
+          sortOrder: numberValue(formData, "sort_order"),
+          isActive: checked(formData, "is_active"),
+        }),
+      ),
     "admin.msg.categoryCreated",
     refreshMenu,
   );
@@ -199,13 +242,15 @@ export async function updateCategoryAction(formData: FormData) {
   await handle(
     MENU_PATH,
     () =>
-      menuService.updateCategory({
-        id: text(formData, "id"),
-        name: text(formData, "name"),
-        description: text(formData, "description"),
-        sortOrder: numberValue(formData, "sort_order"),
-        isActive: checked(formData, "is_active"),
-      }),
+      withMfa(formData, () =>
+        menuService.updateCategory({
+          id: text(formData, "id"),
+          name: text(formData, "name"),
+          description: text(formData, "description"),
+          sortOrder: numberValue(formData, "sort_order"),
+          isActive: checked(formData, "is_active"),
+        }),
+      ),
     "admin.msg.categorySaved",
     refreshMenu,
   );
@@ -214,7 +259,10 @@ export async function updateCategoryAction(formData: FormData) {
 export async function deleteCategoryAction(formData: FormData) {
   await handle(
     MENU_PATH,
-    () => menuService.deleteCategory({ id: text(formData, "id") }),
+    () =>
+      withMfa(formData, () =>
+        menuService.deleteCategory({ id: text(formData, "id") }),
+      ),
     "admin.msg.categoryDeleted",
     refreshMenu,
   );
@@ -223,7 +271,10 @@ export async function deleteCategoryAction(formData: FormData) {
 export async function sortCategoriesAction(formData: FormData) {
   await handle(
     MENU_PATH,
-    () => menuService.sortCategories({ orderedIds: text(formData, "ordered_ids") }),
+    () =>
+      withMfa(formData, () =>
+        menuService.sortCategories({ orderedIds: text(formData, "ordered_ids") }),
+      ),
     "admin.msg.categoriesSorted",
     refreshMenu,
   );
@@ -279,18 +330,20 @@ export async function createMenuItemAction(
   const values = readCreateMenuItemDraft(formData);
 
   try {
-    await menuService.createMenuItem(
-      {
-        categoryId: values.category_id,
-        itemNumber: numberValue(formData, "number"),
-        name: values.name,
-        descriptionDe: values.description_de,
-        descriptionEn: values.description_en,
-        price: numberValue(formData, "price"),
-        sortOrder: numberValue(formData, "sort_order"),
-        isActive: values.is_available,
-      },
-      file(formData, "image"),
+    await withMfa(formData, () =>
+      menuService.createMenuItem(
+        {
+          categoryId: values.category_id,
+          itemNumber: numberValue(formData, "number"),
+          name: values.name,
+          descriptionDe: values.description_de,
+          descriptionEn: values.description_en,
+          price: numberValue(formData, "price"),
+          sortOrder: numberValue(formData, "sort_order"),
+          isActive: values.is_available,
+        },
+        file(formData, "image"),
+      ),
     );
   } catch (error) {
     if (error instanceof AuthorizationError) {
@@ -317,10 +370,12 @@ export async function updateMenuItemAction(formData: FormData) {
   await handle(
     MENU_PATH,
     () =>
-      menuService.updateMenuItem({
-        ...menuItemFields(formData),
-        id: numberValue(formData, "id"),
-      }),
+      withMfa(formData, () =>
+        menuService.updateMenuItem({
+          ...menuItemFields(formData),
+          id: numberValue(formData, "id"),
+        }),
+      ),
     "admin.msg.itemSaved",
     refreshMenu,
   );
@@ -330,10 +385,12 @@ export async function setMenuItemAvailabilityAction(formData: FormData) {
   await handle(
     MENU_PATH,
     () =>
-      menuService.setMenuItemAvailability({
-        id: numberValue(formData, "id"),
-        isAvailable: checked(formData, "is_available"),
-      }),
+      withMfa(formData, () =>
+        menuService.setMenuItemAvailability({
+          id: numberValue(formData, "id"),
+          isAvailable: checked(formData, "is_available"),
+        }),
+      ),
     "admin.msg.availabilityUpdated",
     refreshMenu,
   );
@@ -343,12 +400,12 @@ export async function applyMenuDiscountAction(formData: FormData) {
   await handle(
     DISCOUNTS_PATH,
     () =>
-      menuService
-        .setMenuItemsDiscount({
+      withMfa(formData, () =>
+        menuService.setMenuItemsDiscount({
           ids: formData.getAll("ids"),
           percent: formData.get("percent"),
-        })
-        .then(() => undefined),
+        }),
+      ).then(() => undefined),
     "admin.msg.discountApplied",
     refreshMenu,
   );
@@ -358,9 +415,9 @@ export async function clearMenuDiscountAction(formData: FormData) {
   await handle(
     DISCOUNTS_PATH,
     () =>
-      menuService
-        .setMenuItemsDiscount({ ids: formData.getAll("ids"), percent: 0 })
-        .then(() => undefined),
+      withMfa(formData, () =>
+        menuService.setMenuItemsDiscount({ ids: formData.getAll("ids"), percent: 0 }),
+      ).then(() => undefined),
     "admin.msg.discountCleared",
     refreshMenu,
   );
@@ -369,7 +426,10 @@ export async function clearMenuDiscountAction(formData: FormData) {
 export async function sortMenuItemsAction(formData: FormData) {
   await handle(
     MENU_PATH,
-    () => menuService.sortMenuItems({ orderedIds: text(formData, "ordered_ids") }),
+    () =>
+      withMfa(formData, () =>
+        menuService.sortMenuItems({ orderedIds: text(formData, "ordered_ids") }),
+      ),
     "admin.msg.itemsSorted",
     refreshMenu,
   );
@@ -379,9 +439,11 @@ export async function replaceMenuItemImageAction(formData: FormData) {
   await handle(
     MENU_PATH,
     () =>
-      menuService.replaceMenuItemImage(
-        { id: numberValue(formData, "id") },
-        file(formData, "image"),
+      withMfa(formData, () =>
+        menuService.replaceMenuItemImage(
+          { id: numberValue(formData, "id") },
+          file(formData, "image"),
+        ),
       ),
     "admin.msg.itemImageReplaced",
     refreshMenu,
@@ -391,7 +453,10 @@ export async function replaceMenuItemImageAction(formData: FormData) {
 export async function deleteMenuItemAction(formData: FormData) {
   await handle(
     MENU_PATH,
-    () => menuService.deleteMenuItem({ id: numberValue(formData, "id") }),
+    () =>
+      withMfa(formData, () =>
+        menuService.deleteMenuItem({ id: numberValue(formData, "id") }),
+      ),
     "admin.msg.itemDeleted",
     refreshMenu,
   );
@@ -428,7 +493,8 @@ export async function updateOpeningHoursAction(formData: FormData) {
 
   await handle(
     SETTINGS_PATH,
-    () => settingsService.updateOpeningHours(days),
+    () =>
+      withMfa(formData, () => settingsService.updateOpeningHours(days)),
     "admin.msg.hoursSaved",
     refreshSettings,
   );

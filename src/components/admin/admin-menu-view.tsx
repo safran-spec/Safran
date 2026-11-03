@@ -51,7 +51,6 @@ export type AdminMenuItem = {
 type AdminMenuViewProps = {
   message?: string;
   error?: string;
-  pdfRevision: string;
   categories: AdminMenuCategory[];
   items: AdminMenuItem[];
 };
@@ -59,7 +58,6 @@ type AdminMenuViewProps = {
 export function AdminMenuView({
   message,
   error,
-  pdfRevision,
   categories,
   items,
 }: AdminMenuViewProps) {
@@ -85,7 +83,7 @@ export function AdminMenuView({
         </h2>
         <p className="mt-1 text-sm text-muted">{t("admin.menu.pdfDesc")}</p>
         <div className="mt-4">
-          <MenuPdfDownload revision={pdfRevision} />
+          <MenuPdfDownload />
         </div>
       </Card>
 
@@ -119,6 +117,7 @@ export function AdminMenuView({
               </label>
               <PendingSubmitButton
                 className="w-full"
+                mfa
                 pendingLabel={t("admin.menu.creating")}
               >
                 {t("admin.menu.createCategory")}
@@ -194,6 +193,7 @@ export function AdminMenuView({
                         </label>
                         <PendingSubmitButton
                           className="w-full"
+                          mfa
                           pendingLabel={t("admin.common.saving")}
                         >
                           {t("admin.menu.save")}
@@ -204,6 +204,7 @@ export function AdminMenuView({
                         <PendingSubmitButton
                           variant="danger"
                           className="w-full"
+                          mfa
                           pendingLabel={t("admin.menu.deleting")}
                         >
                           {t("admin.menu.deleteEmptyCategory")}
@@ -300,6 +301,7 @@ export function AdminMenuView({
                             />
                             <PendingSubmitButton
                               variant="secondary"
+                              mfa
                               pendingLabel={t("admin.menu.updating")}
                             >
                               {item.is_active
@@ -392,6 +394,7 @@ export function AdminMenuView({
                             </label>
                             <PendingSubmitButton
                               className="sm:col-span-2"
+                              mfa
                               pendingLabel={t("admin.common.saving")}
                             >
                               {t("admin.menu.saveChanges")}
@@ -415,6 +418,7 @@ export function AdminMenuView({
                                 <PendingSubmitButton
                                   variant="secondary"
                                   className="shrink-0 whitespace-nowrap"
+                                  mfa
                                   pendingLabel={t("admin.menu.compressing")}
                                 >
                                   {t("admin.menu.replaceImage")}
@@ -428,6 +432,7 @@ export function AdminMenuView({
                                 <PendingSubmitButton
                                   variant="danger"
                                   className="w-full whitespace-nowrap sm:w-auto"
+                                  mfa
                                   pendingLabel={t("admin.menu.deleting")}
                                 >
                                   {t("admin.menu.delete")}

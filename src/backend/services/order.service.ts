@@ -256,12 +256,12 @@ export async function createCashOrder(
   };
 
   const orderLines = lines.map((line) => ({
-      menu_item_id: Number(line.menuItemId),
-      name: line.name,
-      quantity: line.quantity,
-      unit_price: line.unitPrice,
-      line_total: lineTotal(line),
-      notes: null,
+    menu_item_id: Number(line.menuItemId),
+    name: line.name,
+    quantity: line.quantity,
+    unit_price: line.unitPrice,
+    line_total: lineTotal(line),
+    notes: null,
   }));
 
   if (payOnline) {
