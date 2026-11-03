@@ -307,7 +307,6 @@ export function AdminSettingsView({
             </div>
             <PendingSubmitButton
               className="mt-5"
-              mfa
               pendingLabel={t("admin.settings.savingHours")}
             >
               {t("admin.settings.saveHours")}

@@ -167,7 +167,6 @@ export function CreateMenuItemForm({
           <PendingSubmitButton
             className="sm:col-span-2"
             requireDirty={false}
-            mfa
             pendingLabel={t("admin.menu.creating")}
           >
             {t("admin.menu.createItem")}

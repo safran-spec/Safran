@@ -8,7 +8,6 @@ export type AdminContext =
   | { state: "setup" }
   | { state: "anonymous" }
   | { state: "forbidden" }
-  | { state: "mfa" }
   | { state: "ready"; email?: string; role: AppRole };
 
 export { hasSupabaseEnvironment };
@@ -25,10 +24,9 @@ export async function getAdminContext(): Promise<AdminContext> {
   if (!hasSupabaseEnvironment()) return { state: "setup" };
 
   try {
-    const { actor, mfaVerified } = await getSessionContext();
+    const { actor } = await getSessionContext();
     if (!actor) return { state: "anonymous" };
     if (!isBackOfficeRole(actor.role)) return { state: "forbidden" };
-    if (!mfaVerified) return { state: "mfa" };
 
     return { state: "ready", email: actor.email, role: actor.role };
   } catch {

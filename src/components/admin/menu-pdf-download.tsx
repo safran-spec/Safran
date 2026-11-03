@@ -1,32 +1,42 @@
 "use client";
 
-import { useState } from "react";
-import { MfaCodeDialog } from "@/components/admin/mfa-code-dialog";
+import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/lib/i18n/locale-context";
 
-export function MenuPdfDownload() {
+type MenuPdfDownloadProps = {
+  /** Changes when menu catalog changes — drops stale browser PDF blobs. */
+  revision: string;
+};
+
+export function MenuPdfDownload({ revision }: MenuPdfDownloadProps) {
   const { t } = useLocale();
   const [lang, setLang] = useState<"de" | "en">("de");
   const [pending, setPending] = useState<"preview" | "download" | null>(null);
-  const [codeFor, setCodeFor] = useState<"preview" | "download" | null>(null);
   const [error, setError] = useState("");
+  const blobCache = useRef(new Map<string, Blob>());
 
-  async function loadPdf(mode: "preview" | "download", code: string) {
+  useEffect(() => {
+    blobCache.current.clear();
+  }, [revision]);
+
+  async function loadPdf(mode: "preview" | "download") {
     setPending(mode);
     setError("");
+    const cacheKey = `${revision}:${lang}`;
     try {
-      const response = await fetch("/api/admin/menu-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lang, preview: mode === "preview", code }),
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          message?: string;
-        } | null;
-        throw new Error(body?.message || t("admin.menu.pdfFailed"));
+      let blob = blobCache.current.get(cacheKey) ?? null;
+      if (!blob) {
+        const response = await fetch(`/api/admin/menu-pdf?lang=${lang}`);
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          throw new Error(body?.message || t("admin.menu.pdfFailed"));
+        }
+        blob = await response.blob();
+        blobCache.current.set(cacheKey, blob);
       }
-      const blob = await response.blob();
+
       const url = URL.createObjectURL(blob);
       if (mode === "preview") {
         window.open(url, "_blank", "noopener,noreferrer");
@@ -64,7 +74,7 @@ export function MenuPdfDownload() {
       </label>
       <button
         type="button"
-        onClick={() => setCodeFor("preview")}
+        onClick={() => void loadPdf("preview")}
         disabled={pending !== null}
         className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sage/30 bg-white px-4 py-2 text-sm font-semibold text-sage-deep disabled:opacity-60"
       >
@@ -74,7 +84,7 @@ export function MenuPdfDownload() {
       </button>
       <button
         type="button"
-        onClick={() => setCodeFor("download")}
+        onClick={() => void loadPdf("download")}
         disabled={pending !== null}
         className="inline-flex min-h-10 items-center justify-center rounded-xl bg-sage-deep px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
       >
@@ -83,16 +93,6 @@ export function MenuPdfDownload() {
           : t("admin.menu.pdfDownload")}
       </button>
       {error ? <p className="w-full text-sm text-red-700">{error}</p> : null}
-      {codeFor ? (
-        <MfaCodeDialog
-          onCancel={() => setCodeFor(null)}
-          onSubmit={(code) => {
-            const mode = codeFor;
-            setCodeFor(null);
-            void loadPdf(mode, code);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

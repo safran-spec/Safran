@@ -1,9 +1,8 @@
 "use client";
 
-import { useRef, useState, type MouseEvent, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { useDirtyForm } from "@/components/admin/dirty-form";
-import { MfaCodeDialog } from "@/components/admin/mfa-code-dialog";
 import { useLocale } from "@/lib/i18n/locale-context";
 
 type PendingSubmitButtonProps = {
@@ -24,13 +23,7 @@ type PendingSubmitButtonProps = {
   form?: string;
   /** Additional reason to block submission, e.g. an empty selection. */
   disabled?: boolean;
-  /**
-   * Asks for an authenticator code before submitting. The code is sent to the
-   * Server Action as `mfa_code`.
-   */
-  mfa?: boolean;
 };
-
 
 const VARIANT_CLASS: Record<
   NonNullable<PendingSubmitButtonProps["variant"]>,
@@ -57,63 +50,24 @@ export function PendingSubmitButton({
   formAction,
   form,
   disabled = false,
-  mfa = false,
 }: PendingSubmitButtonProps) {
   const { pending } = useFormStatus();
   const dirty = useDirtyForm();
   const { t } = useLocale();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [codeOpen, setCodeOpen] = useState(false);
   const blockedByDirty =
     requireDirty && dirty !== null && dirty === false;
   const busyLabel = pendingLabel ?? t("admin.common.saving");
 
-  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
-    if (!mfa) return;
-    event.preventDefault();
-    const owner = event.currentTarget.form;
-    if (owner && !owner.reportValidity()) return;
-    setCodeOpen(true);
-  };
-
-  const submitWithCode = (code: string) => {
-    const button = buttonRef.current;
-    const owner = button?.form;
-    if (!button || !owner) return;
-    setCodeOpen(false);
-    const hidden = document.createElement("input");
-    hidden.type = "hidden";
-    hidden.name = "mfa_code";
-    hidden.value = code;
-    owner.appendChild(hidden);
-    try {
-      owner.requestSubmit(button);
-    } finally {
-      hidden.remove();
-    }
-  };
-
   return (
-    <>
-      <button
-        ref={buttonRef}
-        type="submit"
-        form={form}
-        formAction={formAction}
-        onClick={mfa ? handleClick : undefined}
-        disabled={pending || blockedByDirty || disabled}
-        aria-busy={pending}
-        className={`${VARIANT_CLASS[variant]} ${className}`.trim()}
-      >
-        {pending ? busyLabel : children}
-      </button>
-      {mfa && codeOpen ? (
-        <MfaCodeDialog
-          onSubmit={submitWithCode}
-          onCancel={() => setCodeOpen(false)}
-        />
-      ) : null}
-    </>
+    <button
+      type="submit"
+      form={form}
+      formAction={formAction}
+      disabled={pending || blockedByDirty || disabled}
+      aria-busy={pending}
+      className={`${VARIANT_CLASS[variant]} ${className}`.trim()}
+    >
+      {pending ? busyLabel : children}
+    </button>
   );
 }
-
