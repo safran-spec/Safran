@@ -18,13 +18,26 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
   if (context.state === "ready") redirect(next);
   if (context.state === "setup") return <SetupState />;
   if (context.state === "mfa") {
-    return (
-      <AdminMfaView
-        challenge={await getMfaChallenge()}
-        error={params.error}
-        next={next}
-      />
+    const result = await getMfaChallenge().then(
+      (challenge) => ({ challenge }),
+      (error: unknown) => ({ error }),
     );
+    if ("challenge" in result) {
+      return (
+        <AdminMfaView challenge={result.challenge} error={params.error} next={next} />
+      );
+    }
+
+    console.error("[admin/login] MFA challenge failed:", result.error);
+    const message =
+      result.error instanceof Error
+        ? result.error.message
+        : "Authenticator konnte nicht geladen werden.";
+    const code =
+      typeof (result.error as { code?: unknown })?.code === "string"
+        ? (result.error as { code: string }).code
+        : "mfa_enroll_failed";
+    return <AdminLoginView error={`admin.err.${code}::${message}`} next={next} />;
   }
 
   return <AdminLoginView error={params.error} next={next} />;

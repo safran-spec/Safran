@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionState } from "react";
 import { logoutAction, verifyMfaAction } from "@/app/admin/actions";
 import { PendingSubmitButton } from "@/components/admin/pending-submit-button";
 import { Card, Notice, fieldClass } from "@/components/admin/ui";
@@ -20,7 +21,7 @@ export function AdminMfaView({
   next: string;
 }) {
   const { t } = useLocale();
-
+  const [state, formAction] = useActionState(verifyMfaAction, {} as { error?: string });
   return (
     <div
       className="notranslate min-h-screen bg-[#f3ede4] px-4 py-36"
@@ -41,7 +42,7 @@ export function AdminMfaView({
             {challenge.enrolled ? t("admin.mfa.descVerify") : t("admin.mfa.descSetup")}
           </p>
           <div className="mt-5">
-            <Notice error={error} />
+            <Notice error={state.error ?? error} />
           </div>
           {!challenge.enrolled && (
             <div className="mt-2 flex flex-col items-center gap-3">
@@ -58,7 +59,7 @@ export function AdminMfaView({
               </code>
             </div>
           )}
-          <form action={verifyMfaAction} className="mt-5 space-y-5">
+          <form action={formAction} className="mt-5 space-y-5">
             <input type="hidden" name="next" value={next} />
             <input type="hidden" name="factorId" value={challenge.factorId} />
             <label className="block text-sm font-semibold text-ink">

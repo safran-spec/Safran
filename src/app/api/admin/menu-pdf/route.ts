@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAppError } from "@/backend/errors";
+import { requireBackOffice } from "@/backend/auth/authorize";
+import { confirmMfaCode } from "@/backend/services/auth.service";
 import {
   buildMenuPdf,
   type MenuPdfLang,
@@ -7,12 +9,18 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   try {
-    const url = new URL(request.url);
-    const langParam = url.searchParams.get("lang");
-    const preview = url.searchParams.get("preview") === "1";
-    const lang: MenuPdfLang = langParam === "en" ? "en" : "de";
+    await requireBackOffice();
+    const body = (await request.json().catch(() => null)) as {
+      lang?: string;
+      preview?: boolean;
+      code?: string;
+    } | null;
+    await confirmMfaCode(typeof body?.code === "string" ? body.code : "");
+
+    const preview = body?.preview === true;
+    const lang: MenuPdfLang = body?.lang === "en" ? "en" : "de";
     const { bytes, filename } = await buildMenuPdf(lang);
 
     return new NextResponse(Buffer.from(bytes), {

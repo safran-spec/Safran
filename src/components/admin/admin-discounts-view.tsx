@@ -150,6 +150,7 @@ export function AdminDiscountsView({
 
               <PendingSubmitButton
                 requireDirty={false}
+                mfa
                 disabled={!selected.size || !percentValid}
                 pendingLabel={t("admin.discounts.applying")}
               >
@@ -160,6 +161,7 @@ export function AdminDiscountsView({
                 variant="danger"
                 requireDirty={false}
                 formAction={clearMenuDiscountAction}
+                mfa
                 disabled={!selected.size}
                 pendingLabel={t("admin.discounts.removing")}
               >

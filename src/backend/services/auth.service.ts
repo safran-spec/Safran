@@ -104,6 +104,20 @@ export async function getMfaChallenge(): Promise<MfaChallenge> {
   };
 }
 
+/** Re-checks a fresh authenticator code for sensitive actions (e.g. emergency close). */
+export async function confirmMfaCode(code: string): Promise<void> {
+  const supabase = await createSessionClient();
+  const { data } = await supabase.auth.mfa.listFactors();
+  const factor = data?.totp[0];
+  if (!factor) {
+    throw new AuthorizationError(
+      "unauthenticated",
+      "Zwei-Faktor-Bestätigung erforderlich.",
+    );
+  }
+  await verifyMfaCode({ factorId: factor.id, code });
+}
+
 /** Verifies a 6-digit code; success upgrades the session to aal2. */
 export async function verifyMfaCode(input: {
   factorId: string;
