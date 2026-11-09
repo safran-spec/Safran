@@ -39,6 +39,14 @@ export function findActiveDeliveryZoneByPostal(db: Db, postalCode: string) {
     .maybeSingle();
 }
 
+/** How many active delivery areas exist (for allow-list enforcement). */
+export function countActiveDeliveryZones(db: Db) {
+  return db
+    .from("delivery_zone_minimums")
+    .select("id", { count: "exact", head: true })
+    .eq("is_active", true);
+}
+
 export function insertDeliveryZone(
   db: Db,
   input: { postalCode: string; minimumOrder: number; isActive: boolean },

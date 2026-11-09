@@ -24,6 +24,7 @@ const CHECKOUT_ERROR_KEYS = {
   payment_unavailable: "checkout.err.payment_unavailable",
   payment_amount_too_low: "checkout.err.payment_amount_too_low",
   minimum_not_met: "checkout.err.minimum_not_met",
+  delivery_area_unavailable: "checkout.err.delivery_area_unavailable",
   invalid_customer: "checkout.err.invalid_customer",
   invalid_address: "checkout.err.invalid_address",
   invalid_items: "checkout.err.invalid_items",
@@ -256,6 +257,17 @@ export function CheckoutForm({
       return;
     }
     if (!items.length || !acceptedPolicy || submitting) return;
+
+    const deliveryAreasConfigured = Object.keys(zoneMinimums).length > 0;
+    if (
+      fulfillment === "delivery" &&
+      deliveryAreasConfigured &&
+      postalCode.trim().length === 4 &&
+      zoneMinimums[postalCode.trim()] === undefined
+    ) {
+      setNotice(t("checkout.err.delivery_area_unavailable"));
+      return;
+    }
 
     const applicableMinimum =
       fulfillment === "delivery"
@@ -544,6 +556,10 @@ export function CheckoutForm({
                 <span className="mt-1.5 block text-xs font-normal text-muted">
                   {(() => {
                     const code = postalCode.trim();
+                    const areasConfigured = Object.keys(zoneMinimums).length > 0;
+                    if (code.length === 4 && areasConfigured && zoneMinimums[code] === undefined) {
+                      return t("checkout.err.delivery_area_unavailable");
+                    }
                     const zoneMin =
                       code.length === 4 ? zoneMinimums[code] : undefined;
                     const amount =

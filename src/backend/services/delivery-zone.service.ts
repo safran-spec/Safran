@@ -72,8 +72,10 @@ export async function deleteDeliveryZone(input: Record<string, unknown>) {
 }
 
 /**
- * Resolves the delivery minimum for an order. Used by order placement with the
- * service-role client (bypasses RLS). Falls back to the global setting.
+ * Resolves the delivery minimum for an order. When at least one active delivery
+ * area exists, the PLZ must match the admin list — otherwise delivery is refused.
+ * Matching zones use their own minimum; unknown PLZ with an empty list falls
+ * back to the global setting.
  */
 export async function resolveOrderDeliveryMinimum(
   db: Db,
@@ -92,10 +94,27 @@ export async function resolveOrderDeliveryMinimum(
     return resolveDeliveryMinimum(null, [], fallback);
   }
 
-  if (!data) return resolveDeliveryMinimum(null, [], fallback);
-  return resolveDeliveryMinimum(
-    code,
-    [{ postalCode: data.postal_code, minimumOrder: Number(data.minimum_order) }],
-    fallback,
-  );
+  if (data) {
+    return resolveDeliveryMinimum(
+      code,
+      [{ postalCode: data.postal_code, minimumOrder: Number(data.minimum_order) }],
+      fallback,
+    );
+  }
+
+  const { count, error: countError } =
+    await deliveryZoneRepository.countActiveDeliveryZones(db);
+  if (countError) {
+    console.error("[delivery-zones] count failed", countError.message);
+    return resolveDeliveryMinimum(null, [], fallback);
+  }
+
+  if ((count ?? 0) > 0) {
+    throw new ConflictError(
+      "delivery_area_unavailable",
+      "In dieses PLZ-Gebiet liefern wir derzeit nicht.",
+    );
+  }
+
+  return resolveDeliveryMinimum(null, [], fallback);
 }
