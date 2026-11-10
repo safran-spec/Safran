@@ -9,11 +9,31 @@ import {
 } from "react";
 import { isValidEmailFormat } from "@/backend/validation/email-format";
 import { useCart } from "@/components/cart-provider";
+import {
+  CheckoutConfirmDialog,
+  type CheckoutConfirmDetails,
+} from "@/components/checkout-confirm-dialog";
+import {
+  CheckoutMapPicker,
+  type MapAddressSuggestion,
+} from "@/components/checkout-map-picker";
 import { useLocale } from "@/lib/i18n/locale-context";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { localizedDishName } from "@/lib/i18n/menu-text";
 import { fetchLiveStoreAvailability } from "@/lib/live-store-status";
 import { isManualClosedMessage } from "@/lib/manual-closed-message";
+
+type GeoPostalResult = {
+  ok?: boolean;
+  street?: string | null;
+  houseNumber?: string | null;
+  postalCode?: string;
+  city?: string | null;
+};
+
+function mapsLinkFor(lat: number, lon: number) {
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}`;
+}
 
 const CHECKOUT_ERROR_KEYS = {
   item_unavailable: "checkout.err.item_unavailable",
@@ -105,13 +125,132 @@ export function CheckoutForm({
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
   const [notice, setNotice] = useState("");
   const [emailValue, setEmailValue] = useState("");
+  const [street, setStreet] = useState("");
+  const [houseNumber, setHouseNumber] = useState("");
   const [postalCode, setPostalCode] = useState("");
+  const [city, setCity] = useState("");
+  const [locationUrl, setLocationUrl] = useState("");
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapFocus, setMapFocus] = useState<{
+    lat: number;
+    lon: number;
+    key: number;
+  } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationNotice, setLocationNotice] = useState("");
   const [emailError, setEmailError] = useState("");
   const [emailChecking, setEmailChecking] = useState(false);
   const [emailOk, setEmailOk] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmDetails, setConfirmDetails] =
+    useState<CheckoutConfirmDetails | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const emailCheckSeq = useRef(0);
+  const pendingOrderBody = useRef<Record<string, unknown> | null>(null);
+  const pendingIdempotencyKey = useRef("");
+
+  function applyGeoResult(result: GeoPostalResult, lat?: number, lon?: number) {
+    if (result.street) setStreet(result.street);
+    if (result.houseNumber) setHouseNumber(result.houseNumber);
+    if (result.postalCode) {
+      setPostalCode(result.postalCode.replace(/\D/g, "").slice(0, 4));
+    }
+    if (result.city) setCity(result.city);
+    if (lat != null && lon != null) {
+      setLocationUrl(mapsLinkFor(lat, lon));
+      setMapFocus((prev) => ({
+        lat,
+        lon,
+        key: (prev?.key ?? 0) + 1,
+      }));
+    }
+    setLocationNotice(t("checkout.locationFilled"));
+  }
+
+  function applySearchSuggestion(suggestion: MapAddressSuggestion) {
+    setStreet(suggestion.street);
+    setHouseNumber(suggestion.houseNumber);
+    setPostalCode(suggestion.postalCode.replace(/\D/g, "").slice(0, 4));
+    setCity(suggestion.city);
+    setLocationUrl(mapsLinkFor(suggestion.lat, suggestion.lon));
+    setMapFocus((prev) => ({
+      lat: suggestion.lat,
+      lon: suggestion.lon,
+      key: (prev?.key ?? 0) + 1,
+    }));
+    setLocationNotice(t("checkout.locationFilled"));
+  }
+
+  async function reverseGeocode(lat: number, lon: number) {
+    const response = await fetch(
+      `/api/geo/postal?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`,
+      { cache: "no-store" },
+    );
+    const result = (await response.json().catch(() => null)) as GeoPostalResult | null;
+    if (!response.ok || !result?.ok || !result.postalCode) {
+      return null;
+    }
+    return result;
+  }
+
+  async function fillFromCoords(lat: number, lon: number) {
+    setLocationNotice("");
+    setLocating(true);
+    try {
+      const result = await reverseGeocode(lat, lon);
+      if (!result) {
+        setLocationNotice(t("checkout.locationUnavailable"));
+        return;
+      }
+      applyGeoResult(result, lat, lon);
+    } catch {
+      setLocationNotice(t("checkout.locationUnavailable"));
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  async function fillFromMyLocation() {
+    setLocationNotice("");
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocationNotice(t("checkout.locationUnsupported"));
+      return;
+    }
+
+    setLocating(true);
+    try {
+      const position = await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 12_000,
+            maximumAge: 60_000,
+          });
+        },
+      );
+
+      const { latitude, longitude } = position.coords;
+      const result = await reverseGeocode(latitude, longitude);
+      if (!result) {
+        setLocationNotice(t("checkout.locationUnavailable"));
+        return;
+      }
+      applyGeoResult(result, latitude, longitude);
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? Number((error as GeolocationPositionError).code)
+          : NaN;
+      if (code === 1) {
+        setLocationNotice(t("checkout.locationDenied"));
+      } else {
+        setLocationNotice(t("checkout.locationUnavailable"));
+      }
+    } finally {
+      setLocating(false);
+    }
+  }
   // DB may still hold the old German paused_reason; always localize the banner.
   const closedLabel = isManualClosedMessage(closedMessage)
     ? t("checkout.closedDefault")
@@ -197,6 +336,65 @@ export function CheckoutForm({
     return () => window.clearTimeout(timer);
   }, [emailValue, t]);
 
+  async function placeOrder(body: Record<string, unknown>, key: string) {
+    setSubmitting(true);
+    setNotice("");
+    setConfirmOpen(false);
+
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": key,
+        },
+        body: JSON.stringify(body),
+      });
+      const result = (await response.json()) as {
+        confirmationToken?: string;
+        clientSecret?: string;
+        checkoutUrl?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.confirmationToken) {
+        if (
+          result.error === "invalid_email" ||
+          result.error === "invalid_email_domain" ||
+          /e-?mail/i.test(result.message ?? "")
+        ) {
+          setEmailError(
+            checkoutErrorMessage(t, result.error, result.message) ||
+              t("checkout.emailUnlikely"),
+          );
+          setEmailOk(false);
+          setSubmitting(false);
+          return;
+        }
+        throw new Error(checkoutErrorMessage(t, result.error, result.message));
+      }
+
+      clearCart();
+      // Card: Safran payment page. Legacy hosted Checkout URL still supported.
+      // Cash: confirmation. Full navigation avoids soft-router crashes when
+      // the DOM was mutated (browser translate extensions, etc.) during checkout.
+      if (result.clientSecret) {
+        window.location.assign(`/zahlung/${result.confirmationToken}`);
+        return;
+      }
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
+      window.location.assign(`/bestellung/${result.confirmationToken}`);
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : t("checkout.orderFailed"),
+      );
+      setSubmitting(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -207,6 +405,17 @@ export function CheckoutForm({
     const email = String(formData.get("email") ?? "")
       .trim()
       .toLowerCase();
+    const firstName = String(formData.get("firstName") ?? "").trim();
+    const lastName = String(formData.get("lastName") ?? "").trim();
+    const phone = String(formData.get("phone") ?? "").trim();
+    const notes = formData.get("notes");
+    const addressStreet = String(formData.get("street") ?? "").trim();
+    const addressHouse = String(formData.get("houseNumber") ?? "").trim();
+    const addressPostal = String(formData.get("postalCode") ?? "")
+      .replace(/\D/g, "")
+      .slice(0, 4);
+    const addressCity = String(formData.get("city") ?? "").trim();
+    const addressLocation = String(formData.get("locationUrl") ?? "").trim();
 
     if (!storeOpen) {
       setNotice(closedLabel);
@@ -256,22 +465,29 @@ export function CheckoutForm({
       setNotice(live.message || closedLabel);
       return;
     }
-    if (!items.length || !acceptedPolicy || submitting) return;
+    if (!items.length || !acceptedPolicy || submitting || confirmOpen) return;
 
     const deliveryAreasConfigured = Object.keys(zoneMinimums).length > 0;
     if (
       fulfillment === "delivery" &&
       deliveryAreasConfigured &&
-      postalCode.trim().length === 4 &&
-      zoneMinimums[postalCode.trim()] === undefined
+      addressPostal.length === 4 &&
+      zoneMinimums[addressPostal] === undefined
     ) {
       setNotice(t("checkout.err.delivery_area_unavailable"));
       return;
     }
 
+    if (fulfillment === "delivery") {
+      if (!addressStreet || !addressHouse || addressPostal.length !== 4 || !addressCity) {
+        setNotice(t("checkout.err.invalid_address"));
+        return;
+      }
+    }
+
     const applicableMinimum =
       fulfillment === "delivery"
-        ? zoneMinimums[postalCode.trim()] ?? deliveryMinimum
+        ? zoneMinimums[addressPostal] ?? deliveryMinimum
         : pickupMinimum;
     if (applicableMinimum > 0 && subtotal < applicableMinimum) {
       setNotice(
@@ -288,95 +504,110 @@ export function CheckoutForm({
         ? crypto.randomUUID()
         : `${Date.now()}_${Math.random().toString(36).slice(2)}`);
     setIdempotencyKey(key);
-    setSubmitting(true);
-    setNotice("");
 
-    try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": key,
-        },
-        body: JSON.stringify({
-          idempotencyKey: key,
-          fulfillment,
-          paymentMethod,
-          // Confirmation and status emails are written in this language.
-          locale,
-          acceptedNoCancellation: acceptedPolicy,
-          customer: {
-            firstName: formData.get("firstName"),
-            lastName: formData.get("lastName"),
-            email,
-            phone: formData.get("phone"),
-          },
-          address:
-            fulfillment === "delivery"
-              ? {
-                  street: formData.get("street"),
-                  houseNumber: formData.get("houseNumber"),
-                  postalCode: formData.get("postalCode"),
-                  city: formData.get("city"),
-                  locationUrl: formData.get("locationUrl") || undefined,
-                }
-              : undefined,
-          notes: formData.get("notes"),
-          items: items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            details: item.details,
-          })),
-        }),
-      });
-      const result = (await response.json()) as {
-        confirmationToken?: string;
-        clientSecret?: string;
-        checkoutUrl?: string;
-        message?: string;
-        error?: string;
-      };
-      if (!response.ok || !result.confirmationToken) {
-        if (
-          result.error === "invalid_email" ||
-          result.error === "invalid_email_domain" ||
-          /e-?mail/i.test(result.message ?? "")
-        ) {
-          setEmailError(
-            checkoutErrorMessage(t, result.error, result.message) ||
-              t("checkout.emailUnlikely"),
-          );
-          setEmailOk(false);
-          setSubmitting(false);
-          return;
-        }
-        throw new Error(checkoutErrorMessage(t, result.error, result.message));
-      }
+    const body = {
+      idempotencyKey: key,
+      fulfillment,
+      paymentMethod,
+      // Confirmation and status emails are written in this language.
+      locale,
+      acceptedNoCancellation: acceptedPolicy,
+      customer: {
+        firstName,
+        lastName,
+        email,
+        phone,
+      },
+      address:
+        fulfillment === "delivery"
+          ? {
+              street: addressStreet,
+              houseNumber: addressHouse,
+              postalCode: addressPostal,
+              city: addressCity,
+              locationUrl: addressLocation || undefined,
+            }
+          : undefined,
+      notes,
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        details: item.details,
+      })),
+    };
 
-      clearCart();
-      // Card: Safran payment page. Legacy hosted Checkout URL still supported.
-      // Cash: confirmation. Full navigation avoids soft-router crashes when
-      // the DOM was mutated (browser translate extensions, etc.) during checkout.
-      if (result.clientSecret) {
-        window.location.assign(`/zahlung/${result.confirmationToken}`);
-        return;
-      }
-      if (result.checkoutUrl) {
-        window.location.assign(result.checkoutUrl);
-        return;
-      }
-      window.location.assign(`/bestellung/${result.confirmationToken}`);
-    } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : t("checkout.orderFailed"),
-      );
-      setSubmitting(false);
-    }
+    pendingOrderBody.current = body;
+    pendingIdempotencyKey.current = key;
+    setConfirmDetails({
+      fulfillment,
+      paymentMethod,
+      customerName: `${firstName} ${lastName}`.trim(),
+      phone,
+      email,
+      street: addressStreet,
+      houseNumber: addressHouse,
+      postalCode: addressPostal,
+      city: addressCity,
+      locationUrl: addressLocation || undefined,
+      totalLabel: `${t("checkout.total")}: ${formatCurrency(subtotal)}`,
+    });
+    setConfirmOpen(true);
+  }
+
+  function closeConfirmDialog() {
+    setConfirmOpen(false);
+    setConfirmDetails(null);
+    pendingOrderBody.current = null;
+  }
+
+  function confirmAndPlaceOrder() {
+    const body = pendingOrderBody.current;
+    const key = pendingIdempotencyKey.current || idempotencyKey;
+    if (!body || !key || submitting) return;
+    void placeOrder(body, key);
   }
 
   return (
+    <>
+    {confirmOpen && confirmDetails ? (
+      <CheckoutConfirmDialog
+        details={confirmDetails}
+        title={
+          confirmDetails.fulfillment === "delivery"
+            ? t("checkout.confirm.addressTitle")
+            : t("checkout.confirm.title")
+        }
+        body={
+          confirmDetails.fulfillment === "delivery"
+            ? t("checkout.confirm.addressBody")
+            : t("checkout.confirm.body")
+        }
+        addressTitle={t("checkout.addressTitle")}
+        fulfillmentLabel={
+          confirmDetails.fulfillment === "delivery"
+            ? t("checkout.delivery")
+            : t("checkout.pickup")
+        }
+        paymentLabel={
+          confirmDetails.paymentMethod === "card"
+            ? t("checkout.payOnline")
+            : confirmDetails.fulfillment === "delivery"
+              ? t("checkout.cashDelivery")
+              : t("checkout.cashPickup")
+        }
+        editLabel={t("checkout.confirm.edit")}
+        confirmLabel={
+          confirmDetails.paymentMethod === "card"
+            ? t("checkout.confirm.pay")
+            : t("checkout.confirm.place")
+        }
+        mapLinkLabel={t("checkout.confirm.openMap")}
+        onEdit={closeConfirmDialog}
+        onConfirm={confirmAndPlaceOrder}
+      />
+    ) : null}
     <form
       onSubmit={handleSubmit}
       className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start"
@@ -424,7 +655,11 @@ export function CheckoutForm({
                   name="fulfillment"
                   value={option.value}
                   checked={fulfillment === option.value}
-                  onChange={() => setFulfillment(option.value)}
+                  onChange={() => {
+                    setFulfillment(option.value);
+                    setLocationNotice("");
+                    if (option.value !== "delivery") setMapOpen(false);
+                  }}
                   className="sr-only"
                 />
                 <span className="block text-sm font-semibold">
@@ -517,7 +752,44 @@ export function CheckoutForm({
             <h2 className="font-serif text-2xl text-ink">
               {t("checkout.addressTitle")}
             </h2>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-ink/15 bg-cream px-4 py-2 text-sm font-semibold text-ink transition hover:border-sage hover:bg-white disabled:cursor-wait disabled:opacity-60"
+                onClick={() => void fillFromMyLocation()}
+                disabled={locating || submitting}
+              >
+                {locating ? t("checkout.locating") : t("checkout.useMyLocation")}
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-ink/15 bg-cream px-4 py-2 text-sm font-semibold text-ink transition hover:border-sage hover:bg-white disabled:opacity-60"
+                onClick={() => setMapOpen((open) => !open)}
+                disabled={submitting}
+                aria-expanded={mapOpen}
+              >
+                {mapOpen ? t("checkout.hideMap") : t("checkout.chooseOnMap")}
+              </button>
+              {locationNotice ? (
+                <span className="text-xs text-muted">{locationNotice}</span>
+              ) : null}
+            </div>
             <div className="mt-3 grid gap-5 sm:grid-cols-6">
+              <CheckoutMapPicker
+                active={mapOpen}
+                disabled={locating || submitting}
+                focus={mapFocus}
+                hint={
+                  locating
+                    ? t("checkout.locating")
+                    : t("checkout.mapHint")
+                }
+                searchPlaceholder={t("checkout.searchAddressPlaceholder")}
+                searchingLabel={t("checkout.searchingAddress")}
+                emptyLabel={t("checkout.searchAddressEmpty")}
+                onPick={(lat, lon) => void fillFromCoords(lat, lon)}
+                onSelectAddress={applySearchSuggestion}
+              />
               <label className="text-sm font-medium sm:col-span-4">
                 {t("checkout.street")}
                 <input
@@ -526,6 +798,11 @@ export function CheckoutForm({
                   name="street"
                   autoComplete="address-line1"
                   required
+                  value={street}
+                  onChange={(event) => {
+                    setLocationNotice("");
+                    setStreet(event.target.value);
+                  }}
                 />
               </label>
               <label className="text-sm font-medium sm:col-span-2">
@@ -535,6 +812,11 @@ export function CheckoutForm({
                   type="text"
                   name="houseNumber"
                   required
+                  value={houseNumber}
+                  onChange={(event) => {
+                    setLocationNotice("");
+                    setHouseNumber(event.target.value);
+                  }}
                 />
               </label>
               <label className="text-sm font-medium sm:col-span-2">
@@ -549,9 +831,12 @@ export function CheckoutForm({
                   maxLength={4}
                   required
                   value={postalCode}
-                  onChange={(event) =>
-                    setPostalCode(event.target.value.replace(/\D/g, "").slice(0, 4))
-                  }
+                  onChange={(event) => {
+                    setLocationNotice("");
+                    setPostalCode(
+                      event.target.value.replace(/\D/g, "").slice(0, 4),
+                    );
+                  }}
                 />
                 <span className="mt-1.5 block text-xs font-normal text-muted">
                   {(() => {
@@ -584,6 +869,11 @@ export function CheckoutForm({
                   name="city"
                   autoComplete="address-level2"
                   required
+                  value={city}
+                  onChange={(event) => {
+                    setLocationNotice("");
+                    setCity(event.target.value);
+                  }}
                 />
               </label>
               <label className="text-sm font-medium sm:col-span-6">
@@ -594,6 +884,11 @@ export function CheckoutForm({
                   name="locationUrl"
                   inputMode="url"
                   placeholder={t("checkout.locationPlaceholder")}
+                  value={locationUrl}
+                  onChange={(event) => {
+                    setLocationNotice("");
+                    setLocationUrl(event.target.value);
+                  }}
                 />
                 <span className="mt-1.5 block text-xs font-normal text-muted">
                   {t("checkout.locationHint")}
@@ -824,5 +1119,6 @@ export function CheckoutForm({
         )}
       </aside>
     </form>
+    </>
   );
 }

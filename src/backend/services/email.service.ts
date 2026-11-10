@@ -29,11 +29,6 @@ const STATUS_LABELS: Record<EmailLocale, Record<string, string>> = {
   },
 };
 
-/** Guests only ever see German or English; anything else means German. */
-function emailLocale(value: string | null | undefined): EmailLocale {
-  return value === "en" ? "en" : "de";
-}
-
 function siteUrl() {
   const explicit =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
@@ -115,6 +110,10 @@ export type KitchenOrderNotifyContext = {
   customerEmail: string;
   customerPhone: string;
   fulfillmentType: "delivery" | "pickup";
+  /** cash = COD / Bar; card = online (Stripe). */
+  paymentMethod?: "cash" | "card";
+  /** True when Stripe payment already succeeded. */
+  paidOnline?: boolean;
   total: number;
   notes?: string | null;
   addressLine?: string | null;
@@ -173,7 +172,24 @@ async function sendEmail(input: {
   return { skipped: false as const, id: result.data?.id };
 }
 
-/** Kitchen / owner alert when a guest places an order (German copy). */
+function kitchenPaymentLabel(ctx: KitchenOrderNotifyContext): string {
+  if (ctx.paidOnline || ctx.paymentMethod === "card") {
+    return ctx.paidOnline ? "PAID (Online)" : "ONLINE (Card/TWINT)";
+  }
+  // Pickup is not "cash on delivery" — show unpaid / pay at restaurant.
+  if (ctx.fulfillmentType === "pickup") {
+    return "UNPAID (Pay on pickup)";
+  }
+  return "COD (Cash on delivery)";
+}
+
+function kitchenFulfillmentLabel(
+  fulfillmentType: "delivery" | "pickup",
+): string {
+  return fulfillmentType === "delivery" ? "DELIVERY" : "PICKUP";
+}
+
+/** Kitchen / owner alert when a guest places an order (always English). */
 export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
   const recipients = orderNotifyRecipients();
   if (!recipients.length) {
@@ -181,36 +197,37 @@ export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
     return { skipped: true as const };
   }
 
-  const amount = money(ctx.total, "de");
-  const fulfillment =
-    ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung";
+  const amount = money(ctx.total, "en");
+  const fulfillment = kitchenFulfillmentLabel(ctx.fulfillmentType);
+  const payment = kitchenPaymentLabel(ctx);
   const waitMinutes = AUTO_COMPLETE_MINUTES[ctx.fulfillmentType];
   const waitLine =
     ctx.fulfillmentType === "delivery"
-      ? `Erwartete Lieferzeit: ca. ${waitMinutes} Minuten`
-      : `Erwartete Abholzeit: ca. ${waitMinutes} Minuten`;
+      ? `Expected delivery time: about ${waitMinutes} minutes`
+      : `Expected pickup time: about ${waitMinutes} minutes`;
   const adminUrl = ctx.orderId
     ? `${siteUrl()}/admin/orders/${ctx.orderId}`
     : `${siteUrl()}/admin/orders`;
   const itemLines = ctx.items.map(
     (item) =>
-      `${item.quantity}× ${item.name} — ${money(item.quantity * item.unitPrice, "de")}`,
+      `${item.quantity}× ${item.name} — ${money(item.quantity * item.unitPrice, "en")}`,
   );
-  const subject = `Neue Bestellung #${ctx.orderNumber} (${fulfillment})`;
+  const subject = `New order #${ctx.orderNumber} — ${fulfillment} · ${payment}`;
 
   const text = [
-    `Neue Bestellung #${ctx.orderNumber}`,
-    `Art: ${fulfillment}`,
+    `New order #${ctx.orderNumber}`,
+    `Payment: ${payment}`,
+    `Type: ${fulfillment}`,
     waitLine,
     `Total: ${amount}`,
     ``,
-    `Kunde: ${ctx.customerName}`,
-    `Telefon: ${ctx.customerPhone}`,
-    `E-Mail: ${ctx.customerEmail}`,
-    ctx.addressLine ? `Adresse: ${ctx.addressLine}` : null,
-    ctx.notes ? `Notiz: ${ctx.notes}` : null,
+    `Customer: ${ctx.customerName}`,
+    `Phone: ${ctx.customerPhone}`,
+    `Email: ${ctx.customerEmail}`,
+    ctx.addressLine ? `Address: ${ctx.addressLine}` : null,
+    ctx.notes ? `Notes: ${ctx.notes}` : null,
     ``,
-    `Positionen:`,
+    `Items:`,
     ...itemLines,
     ``,
     `Admin: ${adminUrl}`,
@@ -222,27 +239,43 @@ export async function sendOrderNotifyEmail(ctx: KitchenOrderNotifyContext) {
     .map((line) => `<li>${escapeHtml(line)}</li>`)
     .join("");
 
+  const paymentBg = ctx.paidOnline || ctx.paymentMethod === "card"
+    ? "#1a6b33"
+    : "#8a5a00";
+
   const html = wrapHtml(
     subject,
     `
-      <p><strong>Neue Bestellung #${escapeHtml(ctx.orderNumber)}</strong></p>
-      <p>Art: ${escapeHtml(fulfillment)}<br/>${escapeHtml(waitLine)}<br/>Total: <strong>${escapeHtml(amount)}</strong></p>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 18px;border-collapse:collapse;">
+        <tr>
+          <td style="background:${paymentBg};color:#fff;padding:14px 16px;border-radius:12px;font-family:Arial,sans-serif;">
+            <div style="font-size:12px;letter-spacing:0.04em;text-transform:uppercase;opacity:0.9;">New order #${escapeHtml(ctx.orderNumber)}</div>
+            <div style="margin-top:8px;font-size:20px;font-weight:800;line-height:1.25;">
+              ${escapeHtml(payment)}
+              <span style="opacity:0.75;font-weight:600;"> · </span>
+              ${escapeHtml(fulfillment)}
+            </div>
+            <div style="margin-top:8px;font-size:14px;">Total: <strong>${escapeHtml(amount)}</strong></div>
+          </td>
+        </tr>
+      </table>
+      <p>${escapeHtml(waitLine)}</p>
       <p>
-        Kunde: ${escapeHtml(ctx.customerName)}<br/>
-        Telefon: ${escapeHtml(ctx.customerPhone)}<br/>
-        E-Mail: ${escapeHtml(ctx.customerEmail)}
-        ${ctx.addressLine ? `<br/>Adresse: ${escapeHtml(ctx.addressLine)}` : ""}
-        ${ctx.notes ? `<br/>Notiz: ${escapeHtml(ctx.notes)}` : ""}
+        Customer: ${escapeHtml(ctx.customerName)}<br/>
+        Phone: ${escapeHtml(ctx.customerPhone)}<br/>
+        Email: ${escapeHtml(ctx.customerEmail)}
+        ${ctx.addressLine ? `<br/>Address: ${escapeHtml(ctx.addressLine)}` : ""}
+        ${ctx.notes ? `<br/>Notes: ${escapeHtml(ctx.notes)}` : ""}
       </p>
-      <p><strong>Positionen</strong></p>
+      <p><strong>Items</strong></p>
       <ul>${htmlItems}</ul>
       <p style="margin:22px 0;">
         <a href="${escapeAttr(adminUrl)}" style="display:inline-block;background:#1a6b33;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-family:Arial,sans-serif;font-size:14px;font-weight:700;">
-          Im Admin öffnen
+          Open in admin
         </a>
       </p>
     `,
-    "de",
+    "en",
   );
 
   return sendEmail({
@@ -269,50 +302,32 @@ function fulfillmentWaitCopy(
 }
 
 export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
-  const locale = emailLocale(ctx.locale);
+  // Guest emails are always Swiss German (de-CH), even if the site UI was English.
+  void ctx.locale;
+  const locale: EmailLocale = "de";
   const trackUrl = `${siteUrl()}/bestellung/${ctx.confirmationToken}`;
   const amount = money(ctx.total, locale);
   const paid = ctx.paidOnline === true;
   const waitLine = fulfillmentWaitCopy(ctx.fulfillmentType, locale);
-  const copy =
-    locale === "en"
-      ? {
-          fulfillment: ctx.fulfillmentType === "delivery" ? "delivery" : "pickup",
-          subject: paid
-            ? `Receipt — order #${ctx.orderNumber} paid — Safran`
-            : `Order #${ctx.orderNumber} received — Safran`,
-          greeting: `Hello ${ctx.customerName},`,
-          thanks: paid
-            ? `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}). Your online payment of ${amount} was received.`
-            : `thank you for your order #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "delivery" : "pickup"}).`,
-          totalLabel: paid ? `Paid: ${amount}` : `Total: ${amount}`,
-          waitLine,
-          followLine: "You can follow the current status here at any time:",
-          button: "Track order",
-          fallbackLine: "If the button does not work:",
-          saveLine:
-            "Please save or bookmark this link, so you can find your order again after leaving the page.",
-          signOff: "Kind regards",
-        }
-      : {
-          fulfillment:
-            ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung",
-          subject: paid
-            ? `Quittung — Bestellung #${ctx.orderNumber} bezahlt — Safran`
-            : `Bestellung #${ctx.orderNumber} erhalten — Safran`,
-          greeting: `Hallo ${ctx.customerName},`,
-          thanks: paid
-            ? `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}). Ihre Online-Zahlung über ${amount} wurde erhalten.`
-            : `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}).`,
-          totalLabel: paid ? `Bezahlt: ${amount}` : `Total: ${amount}`,
-          waitLine,
-          followLine: "Den aktuellen Status können Sie jederzeit hier verfolgen:",
-          button: "Bestellung verfolgen",
-          fallbackLine: "Falls der Button nicht funktioniert:",
-          saveLine:
-            "Bitte speichern oder bookmarken Sie diesen Link — so finden Sie Ihre Bestellung auch wieder, wenn Sie die Seite verlassen.",
-          signOff: "Freundliche Grüsse",
-        };
+  const copy = {
+    fulfillment:
+      ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung",
+    subject: paid
+      ? `Quittung — Bestellung #${ctx.orderNumber} bezahlt — Safran`
+      : `Bestellung #${ctx.orderNumber} erhalten — Safran`,
+    greeting: `Hallo ${ctx.customerName},`,
+    thanks: paid
+      ? `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}). Ihre Online-Zahlung über ${amount} wurde erhalten.`
+      : `vielen Dank für Ihre Bestellung #${ctx.orderNumber} (${ctx.fulfillmentType === "delivery" ? "Lieferung" : "Abholung"}).`,
+    totalLabel: paid ? `Bezahlt: ${amount}` : `Total: ${amount}`,
+    waitLine,
+    followLine: "Den aktuellen Status können Sie jederzeit hier verfolgen:",
+    button: "Bestellung verfolgen",
+    fallbackLine: "Falls der Button nicht funktioniert:",
+    saveLine:
+      "Bitte speichern oder bookmarken Sie diesen Link — so finden Sie Ihre Bestellung auch wieder, wenn Sie die Seite verlassen.",
+    signOff: "Freundliche Grüsse",
+  };
 
   const text = [
     copy.greeting,
@@ -358,27 +373,19 @@ export async function sendOrderPlacedEmail(ctx: OrderEmailContext) {
 export async function sendOrderStatusEmail(
   ctx: OrderEmailContext & { status: OrderStatus | string },
 ) {
-  const locale = emailLocale(ctx.locale);
+  // Guest status emails stay Swiss German regardless of UI locale.
+  void ctx.locale;
+  const locale: EmailLocale = "de";
   const trackUrl = `${siteUrl()}/bestellung/${ctx.confirmationToken}`;
   const label = statusLabel(ctx.status, locale);
-  const copy =
-    locale === "en"
-      ? {
-          subject: `Order #${ctx.orderNumber}: ${label} — Safran`,
-          greeting: `Hello ${ctx.customerName},`,
-          intro: `the status of your order #${ctx.orderNumber} has been updated:`,
-          detailsLine: "Details and progress:",
-          button: "View status",
-          signOff: "Kind regards",
-        }
-      : {
-          subject: `Bestellung #${ctx.orderNumber}: ${label} — Safran`,
-          greeting: `Hallo ${ctx.customerName},`,
-          intro: `der Status Ihrer Bestellung #${ctx.orderNumber} wurde aktualisiert:`,
-          detailsLine: "Details und Fortschritt:",
-          button: "Status ansehen",
-          signOff: "Freundliche Grüsse",
-        };
+  const copy = {
+    subject: `Bestellung #${ctx.orderNumber}: ${label} — Safran`,
+    greeting: `Hallo ${ctx.customerName},`,
+    intro: `der Status Ihrer Bestellung #${ctx.orderNumber} wurde aktualisiert:`,
+    detailsLine: "Details und Fortschritt:",
+    button: "Status ansehen",
+    signOff: "Freundliche Grüsse",
+  };
 
   const text = [
     copy.greeting,

@@ -176,6 +176,25 @@ export const messages = {
     "checkout.minimumHint": "Mindestbestellwert für PLZ {postal}: {amount}",
     "checkout.minimumDefaultHint": "Mindestbestellwert Lieferung: {amount}",
     "checkout.city": "Ort",
+    "checkout.useMyLocation": "Meinen aktuellen Standort verwenden",
+    "checkout.chooseOnMap": "Auf Karte wählen",
+    "checkout.hideMap": "Karte ausblenden",
+    "checkout.mapHint":
+      "Oben suchen und Adresse wählen, oder auf die Karte tippen. Adresse wird automatisch ausgefüllt.",
+    "checkout.searchAddressPlaceholder":
+      "Adresse auf der Karte suchen…",
+    "checkout.searchingAddress": "Adressen werden gesucht…",
+    "checkout.searchAddressEmpty":
+      "Keine Adresse gefunden. Bitte anders suchen oder auf die Karte tippen.",
+    "checkout.locating": "Standort wird ermittelt…",
+    "checkout.locationDenied":
+      "Standortzugriff verweigert. Bitte PLZ und Ort manuell eingeben.",
+    "checkout.locationUnavailable":
+      "Standort konnte nicht ermittelt werden. Bitte PLZ und Ort manuell eingeben.",
+    "checkout.locationUnsupported":
+      "Standort wird von diesem Gerät nicht unterstützt.",
+    "checkout.locationFilled":
+      "Adresse ausgefüllt. Bitte Strasse, Hausnummer, PLZ und Ort prüfen.",
     "checkout.locationLabel": "Ihr Standort (Link)",
     "checkout.locationPlaceholder":
       "https://maps.google.com/… oder WhatsApp-Standort",
@@ -210,6 +229,16 @@ export const messages = {
     "checkout.submit": "Zahlungspflichtig bestellen",
     "checkout.submitPay": "Weiter zur Zahlung",
     "checkout.submitting": "Bestellung wird gesendet…",
+    "checkout.confirm.title": "Bestellung prüfen",
+    "checkout.confirm.body":
+      "Bitte prüfen Sie Ihre Angaben, bevor Sie verbindlich bestellen.",
+    "checkout.confirm.addressTitle": "Lieferadresse prüfen",
+    "checkout.confirm.addressBody":
+      "Stimmt die Lieferadresse? Bitte genau prüfen — danach kann die Bestellung nicht mehr geändert werden.",
+    "checkout.confirm.edit": "Angaben ändern",
+    "checkout.confirm.openMap": "Auf Karte öffnen",
+    "checkout.confirm.place": "Ja, verbindlich bestellen",
+    "checkout.confirm.pay": "Ja, weiter zur Zahlung",
     "checkout.redirectingPay": "Weiterleitung zur Zahlung…",
     "checkout.orderFailed": "Die Bestellung konnte nicht gesendet werden.",
     "checkout.err.item_unavailable":
@@ -908,6 +937,25 @@ export const messages = {
     "checkout.minimumHint": "Minimum order for postcode {postal}: {amount}",
     "checkout.minimumDefaultHint": "Delivery minimum: {amount}",
     "checkout.city": "City",
+    "checkout.useMyLocation": "Use my current location",
+    "checkout.chooseOnMap": "Choose on map",
+    "checkout.hideMap": "Hide map",
+    "checkout.mapHint":
+      "Search above and pick an address, or tap the map. Address fields fill in automatically.",
+    "checkout.searchAddressPlaceholder":
+      "Search address on the map…",
+    "checkout.searchingAddress": "Searching addresses…",
+    "checkout.searchAddressEmpty":
+      "No address found. Try another search or tap the map.",
+    "checkout.locating": "Finding your location…",
+    "checkout.locationDenied":
+      "Location access denied. Please enter postcode and city manually.",
+    "checkout.locationUnavailable":
+      "Could not find your location. Please enter postcode and city manually.",
+    "checkout.locationUnsupported":
+      "Location is not supported on this device.",
+    "checkout.locationFilled":
+      "Address filled in. Please check street, house number, postcode and city.",
     "checkout.locationLabel": "Your location (link)",
     "checkout.locationPlaceholder":
       "https://maps.google.com/… or WhatsApp location",
@@ -942,6 +990,16 @@ export const messages = {
     "checkout.submit": "Place binding order",
     "checkout.submitPay": "Continue to payment",
     "checkout.submitting": "Sending order…",
+    "checkout.confirm.title": "Review order",
+    "checkout.confirm.body":
+      "Please check your details before placing a binding order.",
+    "checkout.confirm.addressTitle": "Verify delivery address",
+    "checkout.confirm.addressBody":
+      "Is this delivery address correct? Please check carefully — the order cannot be changed afterwards.",
+    "checkout.confirm.edit": "Edit details",
+    "checkout.confirm.openMap": "Open on map",
+    "checkout.confirm.place": "Yes, place binding order",
+    "checkout.confirm.pay": "Yes, continue to payment",
     "checkout.redirectingPay": "Redirecting to payment…",
     "checkout.orderFailed": "The order could not be sent.",
     "checkout.err.item_unavailable":

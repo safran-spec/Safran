@@ -323,6 +323,8 @@ export async function createCashOrder(
     confirmationToken: result.order.confirmation_token,
     status: result.order.status,
     fulfillment: request.fulfillment,
+    paymentMethod: "cash",
+    paidOnline: false,
     total: money(result.order.total),
     locale: request.locale,
     customerName: `${request.customer.firstName} ${request.customer.lastName}`,
@@ -703,6 +705,7 @@ async function notifyOrderCreated(input: {
   confirmationToken: string;
   status: string;
   fulfillment: "delivery" | "pickup";
+  paymentMethod?: "cash" | "card";
   total: number;
   locale: "de" | "en";
   customerName: string;
@@ -756,6 +759,8 @@ async function notifyOrderCreated(input: {
       customerEmail: input.customerEmail,
       customerPhone: input.customerPhone,
       fulfillmentType: input.fulfillment,
+      paymentMethod: input.paymentMethod ?? (input.paidOnline ? "card" : "cash"),
+      paidOnline: input.paidOnline === true,
       total: input.total,
       notes: input.notes,
       addressLine: input.addressLine,
@@ -804,6 +809,7 @@ export async function markOrderPaidFromStripe(input: {
     confirmationToken: order.confirmation_token,
     status: order.status,
     fulfillment,
+    paymentMethod: "card",
     total: money(order.total),
     locale: order.locale === "en" ? "en" : "de",
     customerName: order.customer_name || "Gast",
@@ -883,6 +889,7 @@ export async function completeStripeCheckoutDraftFromStripe(input: {
     confirmationToken: order.confirmation_token,
     status: order.status,
     fulfillment,
+    paymentMethod: "card",
     total: money(order.total),
     locale: order.locale === "en" ? "en" : "de",
     customerName: order.customer_name || "Gast",
