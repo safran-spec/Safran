@@ -23,6 +23,10 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
+    // Vercel free Image Optimization transforms are capped (~5k/month).
+    // When exceeded, /_next/image returns broken images on production.
+    // Serve originals directly so the site keeps working without an upgrade.
+    unoptimized: true,
     remotePatterns: supabaseHost
       ? [
           {
@@ -33,6 +37,7 @@ const nextConfig: NextConfig = {
         ]
       : [],
   },
+
   turbopack: {
     root: path.join(__dirname),
   },
