@@ -39,9 +39,11 @@ export function OrderConfirmationView({
     }).format(value);
 
   const paymentNote =
-    paymentMethod === "card"
+    paymentMethod === "card" || paymentMethod === "twint"
       ? paymentStatus === "paid"
-        ? t("order.page.paidOnline")
+        ? paymentMethod === "twint"
+          ? t("order.page.paidTwint")
+          : t("order.page.paidOnline")
         : t("order.page.paymentPending")
       : fulfillmentType === "delivery"
         ? t("order.page.cashOnDelivery")

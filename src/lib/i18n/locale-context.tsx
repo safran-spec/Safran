@@ -9,9 +9,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { messages, type Locale, type MessageKey } from "@/lib/i18n/messages";
+import { localeFromCookieValue, type Locale } from "@/lib/i18n/locale";
+import { messages, type MessageKey } from "@/lib/i18n/messages";
+
+export { localeFromCookieValue } from "@/lib/i18n/locale";
 
 const DEFAULT_STORAGE_KEY = "safran-locale";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 type LocaleContextValue = {
   locale: Locale;
@@ -29,9 +33,16 @@ function readStoredLocale(storageKey: string, fallback: Locale): Locale {
   return fallback;
 }
 
+function writeLocaleCookie(storageKey: string, locale: Locale) {
+  document.cookie = `${storageKey}=${locale}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`;
+}
+
 /**
  * Storefront and admin keep separate preferences: the public site defaults to
  * German, the back office to English.
+ *
+ * Pass `defaultLocale` from a cookie in the server layout so SSR matches the
+ * client and Suspense/streaming cannot hydrate the wrong language.
  */
 export function LocaleProvider({
   children,
@@ -45,15 +56,25 @@ export function LocaleProvider({
   const [locale, setLocaleState] = useState<Locale>(defaultLocale);
 
   useEffect(() => {
-    const next = readStoredLocale(storageKey, defaultLocale);
-    setLocaleState(next);
-    document.documentElement.lang = next === "en" ? "en" : "de-CH";
+    // Hydration already finished with `defaultLocale`. Safe to adopt
+    // localStorage if the cookie was missing on this first request.
+    const stored = readStoredLocale(storageKey, defaultLocale);
+    if (stored !== defaultLocale) {
+      setLocaleState(stored);
+      writeLocaleCookie(storageKey, stored);
+      document.documentElement.lang = stored === "en" ? "en" : "de-CH";
+      return;
+    }
+    window.localStorage.setItem(storageKey, defaultLocale);
+    writeLocaleCookie(storageKey, defaultLocale);
+    document.documentElement.lang = defaultLocale === "en" ? "en" : "de-CH";
   }, [defaultLocale, storageKey]);
 
   const setLocale = useCallback(
     (next: Locale) => {
       setLocaleState(next);
       window.localStorage.setItem(storageKey, next);
+      writeLocaleCookie(storageKey, next);
       document.documentElement.lang = next === "en" ? "en" : "de-CH";
     },
     [storageKey],

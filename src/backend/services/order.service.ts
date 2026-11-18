@@ -39,9 +39,12 @@ import {
   sendOrderStatusEmail,
 } from "@/backend/services/email.service";
 import {
+  cancelPaymentIntent,
   createOrderPaymentIntent,
+  paymentIntentIncludesTwint,
   retrieveCheckoutSession,
   retrievePaymentIntent,
+  stripePaymentMethodForOrder,
 } from "@/backend/stripe/checkout";
 import { isStripeConfigured } from "@/backend/stripe/config";
 import { createServiceClient } from "@/backend/supabase/clients";
@@ -371,7 +374,10 @@ async function resumeExistingOrder(
     locale?: string | null;
   },
 ): Promise<CreatedOrder> {
-  const paymentMethod = row.payment_method === "card" ? "card" : "cash";
+  const paymentMethod =
+    row.payment_method === "card" || row.payment_method === "twint"
+      ? "card"
+      : "cash";
   const base: CreatedOrder = {
     orderNumber: String(row.order_number),
     confirmationToken: String(row.confirmation_token),
@@ -472,6 +478,7 @@ async function startStripePaymentIntent(input: {
   confirmationToken: string;
   total: number;
   customerEmail: string;
+  idempotencySuffix?: string;
 }): Promise<string> {
   const totalChf = money(input.total);
   if (totalChf < 0.5) {
@@ -496,6 +503,7 @@ async function startStripePaymentIntent(input: {
       confirmationToken: input.confirmationToken,
       totalChf,
       customerEmail: input.customerEmail,
+      idempotencySuffix: input.idempotencySuffix,
     });
 
     if (!intent.client_secret) {
@@ -566,8 +574,9 @@ export async function getPaymentClientSecretForToken(
   }
   const order = orderResult.data;
   if (order) {
+    const method = String(order.payment_method ?? "");
     if (
-      String(order.payment_method ?? "") !== "card" ||
+      (method !== "card" && method !== "twint") ||
       String(order.payment_status ?? "") === "paid"
     ) {
       return null;
@@ -578,6 +587,7 @@ export async function getPaymentClientSecretForToken(
     if (!row?.customer_email) return null;
 
     const existingRef = row.payment_reference;
+    let refreshSuffix: string | undefined;
     if (existingRef && /^pi_/.test(existingRef)) {
       try {
         const existing = await retrievePaymentIntent(existingRef);
@@ -587,15 +597,20 @@ export async function getPaymentClientSecretForToken(
             existing.status === "requires_confirmation" ||
             existing.status === "requires_action")
         ) {
-          return {
-            clientSecret: existing.client_secret,
-            publishableKey,
-            orderNumber: row.order_number,
-            total: money(row.total),
-            currency: "CHF",
-            customerEmail: row.customer_email,
-            locale: row.locale === "en" ? "en" : "de",
-          };
+          if (paymentIntentIncludesTwint(existing)) {
+            return {
+              clientSecret: existing.client_secret,
+              publishableKey,
+              orderNumber: row.order_number,
+              total: money(row.total),
+              currency: "CHF",
+              customerEmail: row.customer_email,
+              locale: row.locale === "en" ? "en" : "de",
+            };
+          }
+          // Stale PI from before TWINT was enabled — recreate.
+          await cancelPaymentIntent(existing.id);
+          refreshSuffix = "twint";
         }
         if (existing.status === "succeeded") {
           await markOrderPaidFromStripe({
@@ -616,6 +631,7 @@ export async function getPaymentClientSecretForToken(
       confirmationToken: row.confirmation_token,
       total: money(row.total),
       customerEmail: row.customer_email,
+      idempotencySuffix: refreshSuffix,
     });
 
     return {
@@ -645,6 +661,7 @@ export async function getPaymentClientSecretForToken(
   const orderNumber = String(data.order_number ?? "");
   const locale = data.locale === "en" ? "en" : "de";
 
+  let refreshSuffix: string | undefined;
   if (draft.payment_reference) {
     try {
       const existing = await retrievePaymentIntent(draft.payment_reference);
@@ -658,17 +675,23 @@ export async function getPaymentClientSecretForToken(
         });
         return null;
       }
-      if (existing.status === "canceled") return null;
-      if (existing.client_secret) {
-        return {
-          clientSecret: existing.client_secret,
-          publishableKey,
-          orderNumber,
-          total,
-          currency: "CHF",
-          customerEmail: email,
-          locale,
-        };
+      if (existing.status === "canceled") {
+        refreshSuffix = "twint";
+      } else if (existing.client_secret) {
+        if (paymentIntentIncludesTwint(existing)) {
+          return {
+            clientSecret: existing.client_secret,
+            publishableKey,
+            orderNumber,
+            total,
+            currency: "CHF",
+            customerEmail: email,
+            locale,
+          };
+        }
+        // Old PaymentIntent without TWINT (created before enable) — refresh.
+        await cancelPaymentIntent(existing.id);
+        refreshSuffix = "twint";
       }
     } catch (error) {
       console.error("[stripe] retrieve checkout draft payment failed", error);
@@ -686,6 +709,7 @@ export async function getPaymentClientSecretForToken(
     confirmationToken: draft.confirmation_token,
     total,
     customerEmail: email,
+    idempotencySuffix: refreshSuffix,
   });
 
   return {
@@ -778,12 +802,14 @@ async function notifyOrderCreated(input: {
 export async function markOrderPaidFromStripe(input: {
   orderId: string;
   paymentReference: string;
+  onlineMethod?: "card" | "twint";
 }): Promise<boolean> {
   const db = trustedClient();
   const updated = await orderRepository.markOrderPaid(
     db,
     input.orderId,
     input.paymentReference,
+    input.onlineMethod ?? "card",
   );
 
   if (updated.error) {
@@ -836,6 +862,7 @@ export async function completeStripeCheckoutDraftFromStripe(input: {
   paymentReference: string;
   amountReceived: number;
   currency: string;
+  onlineMethod?: "card" | "twint";
 }): Promise<boolean> {
   if (!isUuid(input.draftId) || !isUuid(input.confirmationToken)) {
     throw new UnavailableError(
@@ -854,6 +881,17 @@ export async function completeStripeCheckoutDraftFromStripe(input: {
     );
   }
   if (!completion.created) return true;
+
+  if (input.onlineMethod === "twint") {
+    const stamped = await orderRepository.setOnlinePaymentMethod(
+      db,
+      completion.order.id,
+      "twint",
+    );
+    if (stamped.error) {
+      console.warn("[stripe] could not stamp TWINT payment_method", stamped.error);
+    }
+  }
 
   const [orderResult, itemsResult] = await Promise.all([
     orderRepository.findOrderById(db, completion.order.id),
@@ -924,6 +962,7 @@ export async function syncStripeCheckoutSession(input: {
     if (input.paymentIntentId && /^pi_[a-zA-Z0-9_]+$/.test(input.paymentIntentId)) {
       const intent = await retrievePaymentIntent(input.paymentIntentId);
       if (intent.status !== "succeeded") return;
+      const onlineMethod = stripePaymentMethodForOrder(intent);
       const metaToken = intent.metadata?.confirmation_token;
       const draftId = intent.metadata?.checkout_draft_id;
       if (draftId && metaToken === input.confirmationToken) {
@@ -933,6 +972,7 @@ export async function syncStripeCheckoutSession(input: {
           paymentReference: intent.id,
           amountReceived: intent.amount_received,
           currency: intent.currency,
+          onlineMethod,
         });
         return;
       }
@@ -941,6 +981,7 @@ export async function syncStripeCheckoutSession(input: {
       await markOrderPaidFromStripe({
         orderId,
         paymentReference: intent.id,
+        onlineMethod,
       });
       return;
     }

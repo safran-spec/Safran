@@ -134,11 +134,13 @@ export function markOrderPaid(
   db: Db,
   orderId: string,
   reference: string,
+  onlineMethod: "card" | "twint" = "card",
 ) {
   return db
     .from("orders")
     .update({
       payment_status: "paid",
+      payment_method: onlineMethod,
       payment_provider: "stripe",
       payment_reference: reference,
       updated_at: new Date().toISOString(),
@@ -147,6 +149,22 @@ export function markOrderPaid(
     .eq("payment_status", "pending")
     .select("id, order_number, confirmation_token, total, status, customer_email, customer_name, fulfillment_type, customer_phone, customer_notes, address_line1, postal_code, city, locale")
     .maybeSingle();
+}
+
+/** After draft→order, stamp card vs TWINT (RPC still seeds payment_method=card). */
+export function setOnlinePaymentMethod(
+  db: Db,
+  orderId: string,
+  onlineMethod: "card" | "twint",
+) {
+  return db
+    .from("orders")
+    .update({
+      payment_method: onlineMethod,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+    .eq("payment_provider", "stripe");
 }
 
 export function setPaymentReference(

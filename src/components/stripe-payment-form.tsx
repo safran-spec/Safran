@@ -15,16 +15,27 @@ function PayForm({
   orderNumber,
   totalLabel,
   returnUrl,
+  isTestMode,
+  initialErrorKey,
+  initialInfoKey,
 }: {
   orderNumber: string;
   totalLabel: string;
   returnUrl: string;
+  isTestMode: boolean;
+  initialErrorKey?: "failed";
+  initialInfoKey?: "processing";
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const { t } = useLocale();
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(
+    initialErrorKey === "failed" ? t("pay.errorFailed") : "",
+  );
+  const [info] = useState(
+    initialInfoKey === "processing" ? t("pay.processingHint") : "",
+  );
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -33,31 +44,94 @@ function PayForm({
     setSubmitting(true);
     setError("");
 
+    // Card can finish without leaving the page; TWINT redirects to the app/QR
+    // then back to return_url with payment_intent + redirect_status.
     const result = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: returnUrl,
       },
+      redirect: "if_required",
     });
 
     if (result.error) {
-      setError(result.error.message || t("pay.errorGeneric"));
+      setError(result.error.message || t("pay.errorFailed"));
       setSubmitting(false);
+      return;
     }
+
+    const intent = result.paymentIntent;
+    if (intent?.status === "succeeded" || intent?.status === "processing") {
+      const url = new URL(returnUrl);
+      url.searchParams.set("payment_intent", intent.id);
+      url.searchParams.set(
+        "redirect_status",
+        intent.status === "succeeded" ? "succeeded" : "processing",
+      );
+      window.location.assign(url.toString());
+      return;
+    }
+
+    if (
+      intent?.status === "requires_payment_method" ||
+      intent?.status === "canceled"
+    ) {
+      setError(t("pay.errorDeclined"));
+      setSubmitting(false);
+      return;
+    }
+
+    setError(t("pay.errorFailed"));
+    setSubmitting(false);
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="rounded-2xl border border-ink/10 bg-white p-4 sm:p-5">
-        <PaymentElement options={{ layout: "tabs" }} />
-      </div>
-
       {error ? (
         <p
-          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium leading-6 text-red-800"
           role="alert"
+          aria-live="assertive"
         >
           {error}
+        </p>
+      ) : null}
+      {!error && info ? (
+        <p
+          className="rounded-2xl border border-sage/30 bg-sage/10 px-4 py-3 text-sm font-medium leading-6 text-ink"
+          role="status"
+          aria-live="polite"
+        >
+          {info}
+        </p>
+      ) : null}
+
+      <div className="rounded-2xl border border-ink/10 bg-white p-4 sm:p-5">
+        <PaymentElement
+          options={{
+            layout: "tabs",
+            paymentMethodOrder: ["card", "twint"],
+            // Safran is CHF / Switzerland — default CH so TWINT can appear
+            // even when the browser/IP is outside Switzerland (e.g. testing).
+            defaultValues: {
+              billingDetails: {
+                address: {
+                  country: "CH",
+                },
+              },
+            },
+            wallets: {
+              applePay: "auto",
+              googlePay: "auto",
+            },
+          }}
+        />
+      </div>
+
+      <p className="text-xs leading-5 text-muted">{t("pay.twintHint")}</p>
+      {isTestMode ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
+          {t("pay.twintTestHint")}
         </p>
       ) : null}
 
@@ -95,6 +169,8 @@ export function StripePaymentForm({
   currency,
   locale,
   returnUrl,
+  initialErrorKey,
+  initialInfoKey,
 }: {
   clientSecret: string;
   publishableKey: string;
@@ -103,8 +179,11 @@ export function StripePaymentForm({
   currency: string;
   locale: "de" | "en";
   returnUrl: string;
+  initialErrorKey?: "failed";
+  initialInfoKey?: "processing";
 }) {
   const { t } = useLocale();
+  const isTestMode = publishableKey.startsWith("pk_test");
   const stripePromise = useMemo(
     () => loadStripe(publishableKey),
     [publishableKey],
@@ -149,6 +228,9 @@ export function StripePaymentForm({
           orderNumber={orderNumber}
           totalLabel={totalLabel}
           returnUrl={returnUrl}
+          isTestMode={isTestMode}
+          initialErrorKey={initialErrorKey}
+          initialInfoKey={initialInfoKey}
         />
       </Elements>
     </div>

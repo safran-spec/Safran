@@ -23,10 +23,13 @@ async function siteOrigin(): Promise<string> {
 
 export default async function PaymentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ payment?: string }>;
 }) {
   const { token } = await params;
+  const { payment: paymentFlag } = await searchParams;
   const payment = await getPaymentClientSecretForToken(token);
   if (!payment) {
     redirect(`/bestellung/${token}`);
@@ -34,6 +37,11 @@ export default async function PaymentPage({
 
   const origin = await siteOrigin();
   const returnUrl = `${origin}/bestellung/${token}`;
+  const paymentFailed =
+    paymentFlag === "failed" ||
+    paymentFlag === "cancelled" ||
+    paymentFlag === "canceled";
+  const paymentProcessing = paymentFlag === "processing";
 
   return (
     <section className="bg-paper px-4 pt-24 pb-16 sm:px-6 sm:pt-28 sm:pb-20 lg:px-8">
@@ -46,6 +54,8 @@ export default async function PaymentPage({
           currency={payment.currency}
           locale={payment.locale}
           returnUrl={returnUrl}
+          initialErrorKey={paymentFailed ? "failed" : undefined}
+          initialInfoKey={paymentProcessing ? "processing" : undefined}
         />
       </div>
     </section>

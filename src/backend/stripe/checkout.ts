@@ -21,6 +21,10 @@ export function getStripePublishableKey(): string {
  * PaymentIntent for embedded Safran payment page (Payment Element).
  * Menu SKUs stay in our DB — Stripe only charges the order total.
  */
+export function paymentIntentIncludesTwint(intent: Stripe.PaymentIntent) {
+  return (intent.payment_method_types ?? []).includes("twint");
+}
+
 export async function createOrderPaymentIntent(input: {
   checkoutDraftId?: string;
   orderId?: string;
@@ -28,13 +32,18 @@ export async function createOrderPaymentIntent(input: {
   confirmationToken: string;
   totalChf: number;
   customerEmail: string;
+  /** Bump when regenerating after payment-method settings change (e.g. TWINT). */
+  idempotencySuffix?: string;
 }): Promise<Stripe.PaymentIntent> {
   const stripe = getStripe();
   const amount = chfToStripeAmount(input.totalChf);
-  const idempotencyKey = input.checkoutDraftId ?? input.orderId;
-  if (!idempotencyKey) {
+  const baseKey = input.checkoutDraftId ?? input.orderId;
+  if (!baseKey) {
     throw new Error("A checkout draft or legacy order id is required.");
   }
+  const idempotencyKey = input.idempotencySuffix
+    ? `${baseKey}:${input.idempotencySuffix}`
+    : baseKey;
 
   // Stripe CHF minimum is 0.50 (50 Rappen). Reject early with a clear log.
   if (!Number.isFinite(amount) || amount < 50) {
@@ -53,7 +62,12 @@ export async function createOrderPaymentIntent(input: {
     {
       amount,
       currency: "chf",
-      automatic_payment_methods: { enabled: true },
+      // Card + TWINT (and other CHF methods) once enabled in Stripe Dashboard.
+      // TWINT needs redirects — do not set allow_redirects to "never".
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: "always",
+      },
       receipt_email: input.customerEmail,
       description: `Bestellung ${input.orderNumber} — Safran`,
       metadata: {
@@ -69,7 +83,32 @@ export async function createOrderPaymentIntent(input: {
 }
 
 export async function retrievePaymentIntent(paymentIntentId: string) {
-  return getStripe().paymentIntents.retrieve(paymentIntentId);
+  return getStripe().paymentIntents.retrieve(paymentIntentId, {
+    expand: ["payment_method"],
+  });
+}
+
+export async function cancelPaymentIntent(paymentIntentId: string) {
+  try {
+    await getStripe().paymentIntents.cancel(paymentIntentId);
+  } catch (error) {
+    console.warn("[stripe] cancel PaymentIntent failed", {
+      paymentIntentId,
+      error,
+    });
+  }
+}
+
+/** Normalize Stripe wallet/card type for our orders.payment_method column. */
+export function stripePaymentMethodForOrder(
+  intent: Stripe.PaymentIntent,
+): "card" | "twint" {
+  const pm = intent.payment_method;
+  const type =
+    typeof pm === "object" && pm && "type" in pm
+      ? String((pm as Stripe.PaymentMethod).type)
+      : "";
+  return type === "twint" ? "twint" : "card";
 }
 
 /** @deprecated Prefer PaymentIntent + embedded page; kept for old webhook sessions. */

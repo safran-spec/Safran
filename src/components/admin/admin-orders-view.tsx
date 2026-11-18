@@ -139,9 +139,11 @@ export function AdminOrdersView({
                           </span>
                           {order.payment_method !== "cash" ? (
                             <p className="text-xs text-muted">
-                              {order.payment_method === "card"
-                                ? "Stripe"
-                                : order.payment_method}
+                              {order.payment_method === "twint"
+                                ? t("admin.orders.paymentTwint")
+                                : order.payment_method === "card"
+                                  ? t("admin.orders.paymentCard")
+                                  : order.payment_method}
                             </p>
                           ) : null}
                         </div>

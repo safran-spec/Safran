@@ -48,10 +48,37 @@ export default async function OrderConfirmationPage({
 
   const order = await getOrderByToken(token);
   if (!order) {
-    if (redirectStatus === "failed" || paymentIntentId || sessionId) {
-      redirect(`/zahlung/${token}`);
+    const failedReturn =
+      redirectStatus === "failed" ||
+      redirectStatus === "canceled" ||
+      redirectStatus === "requires_payment_method";
+
+    if (failedReturn) {
+      redirect(`/zahlung/${token}?payment=failed`);
+    }
+
+    // Stripe came back but order is not ready yet (webhook lag on success).
+    if (
+      (paymentIntentId || sessionId) &&
+      (redirectStatus === "succeeded" || redirectStatus === "processing")
+    ) {
+      redirect(`/zahlung/${token}?payment=processing`);
+    }
+
+    if (paymentIntentId || sessionId) {
+      // Incomplete / unknown return — let the guest retry with a clear error.
+      redirect(`/zahlung/${token}?payment=failed`);
     }
     notFound();
+  }
+
+  // Order exists but online payment still unpaid after a failed return.
+  if (
+    (redirectStatus === "failed" || redirectStatus === "canceled") &&
+    String(order.payment_method ?? "") !== "cash" &&
+    String(order.payment_status ?? "") !== "paid"
+  ) {
+    redirect(`/zahlung/${token}?payment=failed`);
   }
 
   const items = ((order.order_items ?? []) as OrderItem[]).map((item) => ({

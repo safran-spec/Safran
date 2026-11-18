@@ -9,6 +9,7 @@ import {
   getStripeWebhookSecret,
   isStripeConfigured,
 } from "@/backend/stripe/client";
+import { stripePaymentMethodForOrder } from "@/backend/stripe/checkout";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,18 @@ export async function POST(request: Request) {
 
   try {
     if (event.type === "payment_intent.succeeded") {
-      const intent = event.data.object as Stripe.PaymentIntent;
+      let intent = event.data.object as Stripe.PaymentIntent;
+      // Expand payment_method so we can store card vs TWINT on the order.
+      if (typeof intent.payment_method === "string") {
+        try {
+          intent = await getStripe().paymentIntents.retrieve(intent.id, {
+            expand: ["payment_method"],
+          });
+        } catch (error) {
+          console.warn("[stripe] could not expand payment_method", error);
+        }
+      }
+      const onlineMethod = stripePaymentMethodForOrder(intent);
       const draftId = intent.metadata?.checkout_draft_id;
       const confirmationToken = intent.metadata?.confirmation_token;
       if (draftId && confirmationToken) {
@@ -63,6 +75,7 @@ export async function POST(request: Request) {
           paymentReference: intent.id,
           amountReceived: intent.amount_received,
           currency: intent.currency,
+          onlineMethod,
         });
       }
       const orderId = intent.metadata?.order_id;
@@ -70,6 +83,7 @@ export async function POST(request: Request) {
         await markOrderPaidFromStripe({
           orderId,
           paymentReference: intent.id,
+          onlineMethod,
         });
       }
     }

@@ -174,7 +174,7 @@ async function sendEmail(input: {
 
 function kitchenPaymentLabel(ctx: KitchenOrderNotifyContext): string {
   if (ctx.paidOnline || ctx.paymentMethod === "card") {
-    return ctx.paidOnline ? "PAID (Online)" : "ONLINE (Card/TWINT)";
+    return ctx.paidOnline ? "PAID (Online / Card or TWINT)" : "ONLINE (Card/TWINT)";
   }
   // Pickup is not "cash on delivery" — show unpaid / pay at restaurant.
   if (ctx.fulfillmentType === "pickup") {

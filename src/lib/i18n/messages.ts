@@ -280,9 +280,20 @@ export const messages = {
     "pay.orderLine": "Bestellung {number}",
     "pay.submit": "Bezahlen {total}",
     "pay.submitting": "Zahlung wird verarbeitet…",
-    "pay.secureHint": "Sichere Zahlung für Bestellung {number} über Stripe.",
+    "pay.secureHint":
+      "Sichere Zahlung für Bestellung {number} — Karte oder TWINT über Stripe.",
+    "pay.twintHint":
+      "TWINT: App auf dem Handy öffnen bzw. QR-Code scannen. Nach der Freigabe kehren Sie automatisch zurück.",
+    "pay.twintTestHint":
+      "Test: TWINT erscheint nur für Kunden in der Schweiz. Zum Testen aus dem Ausland bitte VPN auf Schweiz stellen, dann die Zahlungsseite neu laden.",
     "pay.cancel": "Abbrechen und zurück zur Kasse",
     "pay.errorGeneric": "Die Zahlung konnte nicht abgeschlossen werden.",
+    "pay.errorFailed":
+      "Zahlung fehlgeschlagen. Bitte versuchen Sie es erneut oder wählen Sie eine andere Zahlungsart.",
+    "pay.errorDeclined":
+      "Die Zahlung wurde abgelehnt. Bitte Karte/TWINT prüfen und erneut versuchen.",
+    "pay.processingHint":
+      "Zahlung wird bestätigt… Bitte kurz warten und die Seite aktualisieren, falls der Status nicht erscheint.",
 
     "order.status.eyebrow": "Bestellstatus",
     "order.status.deliveryTitle": "Bestellung bestätigt",
@@ -309,6 +320,7 @@ export const messages = {
     "order.page.cashOnDelivery": "Zahlung bar bei Lieferung.",
     "order.page.cashOnPickup": "Zahlung bar bei Abholung.",
     "order.page.paidOnline": "Online bezahlt (Karte / TWINT).",
+    "order.page.paidTwint": "Mit TWINT bezahlt.",
     "order.page.paymentPending": "Zahlung wird bestätigt…",
 
     "admin.dash.title": "Übersicht",
@@ -396,6 +408,8 @@ export const messages = {
     "admin.orders.allStatuses": "Alle Status",
     "admin.orders.guest": "Gast",
     "admin.orders.paymentCash": "Barzahlung",
+    "admin.orders.paymentCard": "Stripe (Karte)",
+    "admin.orders.paymentTwint": "Stripe (TWINT)",
     "admin.payment.paid": "Bezahlt",
     "admin.payment.unpaid": "Unbezahlt",
     "admin.payment.refunded": "Erstattet",
@@ -1034,9 +1048,20 @@ export const messages = {
     "pay.orderLine": "Order {number}",
     "pay.submit": "Pay {total}",
     "pay.submitting": "Processing payment…",
-    "pay.secureHint": "Secure payment for order {number} via Stripe.",
+    "pay.secureHint":
+      "Secure payment for order {number} — card or TWINT via Stripe.",
+    "pay.twintHint":
+      "TWINT: open the app on your phone or scan the QR code. You return here automatically after approving.",
+    "pay.twintTestHint":
+      "Test: TWINT only appears for customers in Switzerland. To test from abroad, use a Switzerland VPN, then reload this payment page.",
     "pay.cancel": "Cancel and return to checkout",
     "pay.errorGeneric": "Payment could not be completed.",
+    "pay.errorFailed":
+      "Payment failed. Please try again or choose another payment method.",
+    "pay.errorDeclined":
+      "Payment was declined. Please check card/TWINT and try again.",
+    "pay.processingHint":
+      "Confirming payment… Please wait a moment and refresh if the status does not appear.",
 
     "checkout.eyebrow": "Secure, no account needed",
     "checkout.title": "Your order",
@@ -1067,6 +1092,7 @@ export const messages = {
     "order.page.cashOnDelivery": "Cash payment on delivery.",
     "order.page.cashOnPickup": "Cash payment on pickup.",
     "order.page.paidOnline": "Paid online (card / TWINT).",
+    "order.page.paidTwint": "Paid with TWINT.",
     "order.page.paymentPending": "Confirming payment…",
 
     "admin.dash.title": "Overview",
@@ -1155,6 +1181,8 @@ export const messages = {
     "admin.orders.allStatuses": "All statuses",
     "admin.orders.guest": "Guest",
     "admin.orders.paymentCash": "Cash",
+    "admin.orders.paymentCard": "Stripe (Card)",
+    "admin.orders.paymentTwint": "Stripe (TWINT)",
     "admin.payment.paid": "Paid",
     "admin.payment.unpaid": "Unpaid",
     "admin.payment.refunded": "Refunded",
