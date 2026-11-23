@@ -56,6 +56,8 @@ export async function POST(request: Request) {
       const intent = event.data.object as Stripe.PaymentIntent;
       const draftId = intent.metadata?.checkout_draft_id;
       const confirmationToken = intent.metadata?.confirmation_token;
+      const orderId = intent.metadata?.order_id;
+
       if (draftId && confirmationToken) {
         await completeStripeCheckoutDraftFromStripe({
           draftId,
@@ -64,13 +66,22 @@ export async function POST(request: Request) {
           amountReceived: intent.amount_received,
           currency: intent.currency,
         });
-      }
-      const orderId = intent.metadata?.order_id;
-      if (!draftId && orderId) {
+      } else if (orderId) {
         await markOrderPaidFromStripe({
           orderId,
           paymentReference: intent.id,
         });
+      } else {
+        // Do not silently ack — otherwise Stripe stops retrying and the kitchen
+        // never gets an order while money was captured.
+        console.error("[stripe] payment_intent.succeeded missing metadata", {
+          paymentIntentId: intent.id,
+          metadata: intent.metadata,
+        });
+        return NextResponse.json(
+          { error: "missing_order_metadata" },
+          { status: 422 },
+        );
       }
     }
 
@@ -85,6 +96,15 @@ export async function POST(request: Request) {
           orderId,
           paymentReference: session.id,
         });
+      } else if (!orderId) {
+        console.error("[stripe] checkout.session.completed missing order_id", {
+          sessionId: session.id,
+          metadata: session.metadata,
+        });
+        return NextResponse.json(
+          { error: "missing_order_metadata" },
+          { status: 422 },
+        );
       }
     }
   } catch (error) {
